@@ -17,6 +17,9 @@ class DatabaseHelper {
     return openDatabase(
       join(dir.path, 'chit_notebook.db'),
       version: 1,
+      onConfigure: (db) async {
+        await db.execute('PRAGMA foreign_keys = ON');
+      },
       onCreate: (db, version) async {
         for (final sql in Schema.createStatements) {
           await db.execute(sql);
