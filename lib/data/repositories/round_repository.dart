@@ -1,4 +1,5 @@
 import 'package:sqflite/sqflite.dart';
+import '../../core/utils.dart';
 import '../database/database_helper.dart';
 import '../models/chit_group.dart';
 import '../models/chit_round.dart';
@@ -19,28 +20,11 @@ class RoundRepository {
     return rows.isEmpty ? null : ChitRound.fromMap(rows.first);
   }
 
-  Future<void> setAccountable(int roundId, int memberId) async {
+  /// Change recipient away from fixed order.
+  Future<void> setRecipient(int roundId, int memberId, {String? reason}) async {
     final db = await _helper.database;
-    await db.update('rounds', {'accountable_member_id': memberId},
+    await db.update('rounds', {'recipient_member_id': memberId},
         where: 'id = ?', whereArgs: [roundId]);
-  }
-
-  /// Change recipient away from fixed order — writes a zero-amount note row
-  /// so the change stays on the audit trail.
-  Future<void> setRecipient(int roundId, int memberId, {required String reason}) async {
-    final db = await _helper.database;
-    await db.transaction((txn) async {
-      await txn.update('rounds', {'recipient_member_id': memberId},
-          where: 'id = ?', whereArgs: [roundId]);
-      await txn.insert('transactions', {
-        'round_id': roundId,
-        'member_id': memberId,
-        'type': 'penalty',
-        'amount': 0,
-        'note': 'recipient changed: $reason',
-        'created_at': DateTime.now().toIso8601String(),
-      });
-    });
   }
 
   /// Core-loop tap: mark a member's contribution paid. If late and the group is
@@ -128,44 +112,37 @@ class RoundRepository {
         'created_at': now,
       });
 
-      if (group.interestMode == 'recipient_pays' && group.interestRatePct > 0) {
-        final interest = pot * group.interestRatePct / 100;
-        await txn.insert('transactions', {
-          'round_id': round.id,
-          'member_id': round.recipientMemberId,
-          'type': 'interest',
-          'amount': interest,
-          'note': 'recipient interest (${group.interestRatePct}%)',
-          'created_at': now,
-        });
-        final others = memberIds.where((id) => id != round.recipientMemberId).toList();
-        final share = others.isEmpty ? 0.0 : interest / others.length;
-        for (final id in others) {
+      if (group.interestMode == 'recipient_pays') {
+        final calc = calculateRecipientPays(
+          pot: pot,
+          interestRatePct: group.interestRatePct,
+          totalMembers: memberIds.length,
+        );
+        if (calc.interest > 0) {
           await txn.insert('transactions', {
             'round_id': round.id,
-            'member_id': id,
-            'type': 'dividend',
-            'amount': share,
-            'note': 'interest share, round ${round.seqNo}',
+            'member_id': round.recipientMemberId,
+            'type': 'interest',
+            'amount': calc.interest,
+            'note': 'recipient interest (${group.interestRatePct}%)',
             'created_at': now,
           });
+          final others = memberIds.where((id) => id != round.recipientMemberId).toList();
+          for (final id in others) {
+            await txn.insert('transactions', {
+              'round_id': round.id,
+              'member_id': id,
+              'type': 'dividend',
+              'amount': calc.dividend,
+              'note': 'interest share, round ${round.seqNo}',
+              'created_at': now,
+            });
+          }
         }
       }
 
       await txn.update('rounds', {'status': 'paid_out', 'paid_out_at': now},
           where: 'id = ?', whereArgs: [round.id]);
     });
-  }
-
-  /// Who still owes this round (drives pending badges + WhatsApp reminders).
-  Future<List<Map<String, Object?>>> pendingMembers(int roundId) async {
-    final db = await _helper.database;
-    return db.rawQuery(
-      'SELECT m.id, m.name, m.phone FROM members m '
-      'JOIN rounds r ON r.group_id = m.group_id '
-      'WHERE r.id = ? AND m.id NOT IN '
-      '(SELECT member_id FROM transactions WHERE round_id = ? AND type = ?)',
-      [roundId, roundId, 'contribution'],
-    );
   }
 }
