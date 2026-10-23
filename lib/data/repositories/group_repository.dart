@@ -47,23 +47,6 @@ class GroupRepository {
     return rows.isEmpty ? null : ChitGroup.fromMap(rows.first);
   }
 
-  /// Lock rule (blueprint section 5): after round 1 starts, amount/period/
-  /// members/order are immutable. Only name, interest rate (going forward),
-  /// due day, and status may change — enforced by only exposing those here.
-  Future<void> updateSettings(int groupId,
-      {String? name, double? interestRatePct, int? dueDay, String? status}) async {
-    final db = await _helper.database;
-    final updates = <String, Object?>{
-      if (name != null) 'name': name,
-      if (interestRatePct != null) 'interest_rate_pct': interestRatePct,
-      if (dueDay != null) 'due_day': dueDay,
-      if (status != null) 'status': status,
-    };
-    if (updates.isNotEmpty) {
-      await db.update('groups', updates, where: 'id = ?', whereArgs: [groupId]);
-    }
-  }
-
   /// Delete allowed ONLY when the group has no transactions (blueprint section 5).
   Future<void> deleteIfEmpty(int groupId) async {
     final db = await _helper.database;
@@ -75,6 +58,4 @@ class GroupRepository {
     }
     await db.delete('groups', where: 'id = ?', whereArgs: [groupId]); // cascades
   }
-
-  double potFor(int memberCount, double contribution) => memberCount * contribution;
 }
