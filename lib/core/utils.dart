@@ -11,7 +11,10 @@ String formatDate(DateTime d) => DateFormat('dd MMM yyyy').format(d);
 
 /// Build a wa.me deep link — no server, no SMS cost. Members need no app install.
 String waUrl(String phone, String message) {
-  final digits = phone.replaceAll(RegExp(r'\D'), '');
+  var digits = phone.replaceAll(RegExp(r'\D'), '');
+  if (digits.length == 10) {
+    digits = '91$digits';
+  }
   return 'https://wa.me/$digits?text=${Uri.encodeComponent(message)}';
 }
 
@@ -22,15 +25,15 @@ Future<void> openWhatsApp(String phone, String message) async {
   }
 }
 
-/// Reminder message per v1 blueprint: "Anna, Nov சீட் ₹1,000 pending — round 4 pot waiting"
+/// Reminder message
 String reminderMessage({
   required String memberName,
   required int roundNo,
   required double amount,
   required String currency,
 }) =>
-    '$memberName, $roundNo-வது ரவுண்டு சீட்டுக்கு ${formatMoney(currency, amount)} இன்னும் pending. '
-    'தயவுசெய்து செலுத்துங்கள் — pot காத்திருக்கு 🙏';
+    '$memberName, payment for Round $roundNo (${formatMoney(currency, amount)}) is pending. '
+    'Please pay at your earliest convenience — pot is waiting 🙏';
 
 /// Monthly due date: clamp due_day to the month's length (e.g. 31 -> 28 in Feb).
 DateTime monthlyDueDate(DateTime start, int dueDay, int monthsAfter) {
@@ -39,4 +42,18 @@ DateTime monthlyDueDate(DateTime start, int dueDay, int monthsAfter) {
   final firstOfTarget = DateTime(y, m, 1);
   final lastDay = DateTime(firstOfTarget.year, firstOfTarget.month + 1, 0).day;
   return DateTime(firstOfTarget.year, firstOfTarget.month, dueDay.clamp(1, lastDay));
+}
+
+/// Recipient-pays interest: pot * rate%, split as dividends across other members.
+({double interest, double dividend}) calculateRecipientPays({
+  required double pot,
+  required double interestRatePct,
+  required int totalMembers,
+}) {
+  if (interestRatePct <= 0 || totalMembers <= 1) {
+    return (interest: 0.0, dividend: 0.0);
+  }
+  final interest = pot * interestRatePct / 100;
+  final dividend = interest / (totalMembers - 1);
+  return (interest: interest, dividend: dividend);
 }
