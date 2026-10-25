@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import '../../core/locale_controller.dart';
+import '../../core/strings.dart';
 import '../../core/utils.dart';
 import '../../data/models/chit_group.dart';
 import '../../data/models/member.dart';
@@ -16,7 +18,7 @@ class _NewChitScreenState extends State<NewChitScreen> {
   final GroupRepository _groupRepo = GroupRepository();
 
   // Basic Details
-  final _nameController = TextEditingController(text: 'குடும்ப சீட்டு');
+  late final TextEditingController _nameController;
   final _amountController = TextEditingController(text: '5000');
   String _period = 'monthly';
   DateTime _startDate = DateTime.now();
@@ -27,18 +29,34 @@ class _NewChitScreenState extends State<NewChitScreen> {
   String _interestMode = 'late_fee';
 
   // Members list
-  final List<Map<String, String>> _members = [
-    {'name': 'குமார் (Kumar)', 'phone': '9876543210'},
-    {'name': 'செல்வி (Selvi)', 'phone': '9876543211'},
-    {'name': 'ராஜா (Raja)', 'phone': '9876543212'},
-    {'name': 'கார்த்திக் (Karthik)', 'phone': '9876543213'},
-    {'name': 'மீனா (Meena)', 'phone': '9876543214'},
-  ];
+  late final List<Map<String, String>> _members;
 
   final _newMemberNameController = TextEditingController();
   final _newMemberPhoneController = TextEditingController();
 
   bool _saving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    final isTa = AppLocaleController.instance.isTamil;
+    _nameController = TextEditingController(text: isTa ? 'குடும்ப சீட்டு' : 'Family Chit');
+    _members = isTa
+        ? [
+            {'name': 'குமார் (Kumar)', 'phone': '9876543210'},
+            {'name': 'செல்வி (Selvi)', 'phone': '9876543211'},
+            {'name': 'ராஜா (Raja)', 'phone': '9876543212'},
+            {'name': 'கார்த்திக் (Karthik)', 'phone': '9876543213'},
+            {'name': 'மீனா (Meena)', 'phone': '9876543214'},
+          ]
+        : [
+            {'name': 'Kumar', 'phone': '9876543210'},
+            {'name': 'Selvi', 'phone': '9876543211'},
+            {'name': 'Raja', 'phone': '9876543212'},
+            {'name': 'Karthik', 'phone': '9876543213'},
+            {'name': 'Meena', 'phone': '9876543214'},
+          ];
+  }
 
   @override
   void dispose() {
@@ -65,7 +83,7 @@ class _NewChitScreenState extends State<NewChitScreen> {
   void _removeMember(int index) {
     if (_members.length <= 1) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('குறைந்தது ஒரு உறுப்பினர் தேவை')),
+        SnackBar(content: Text(S.atLeastOneMember)),
       );
       return;
     }
@@ -78,7 +96,7 @@ class _NewChitScreenState extends State<NewChitScreen> {
     if (!_formKey.currentState!.validate()) return;
     if (_members.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('உறுப்பினர்களை சேர்க்கவும்')),
+        SnackBar(content: Text(S.addMembersAlert)),
       );
       return;
     }
@@ -115,14 +133,14 @@ class _NewChitScreenState extends State<NewChitScreen> {
       await _groupRepo.createGroup(group, members);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('சீட்டு வெற்றிகரமாக உருவாக்கப்பட்டது!')),
+          SnackBar(content: Text(S.chitCreatedSuccess)),
         );
         Navigator.pop(context, true);
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('பிழை: $e')),
+          SnackBar(content: Text('${S.error}: $e')),
         );
       }
     } finally {
@@ -135,279 +153,287 @@ class _NewChitScreenState extends State<NewChitScreen> {
     final amount = double.tryParse(_amountController.text.trim()) ?? 0;
     final totalPot = amount * _members.length;
 
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('புதிய சீட்டு உருவாக்குதல்'),
-      ),
-      body: Form(
-        key: _formKey,
-        child: ListView(
-          padding: const EdgeInsets.all(16),
-          children: [
-            // Section 1: Basic
-            _buildSectionHeader('1. அடிப்படை விவரங்கள் (Basic Details)'),
-            TextFormField(
-              controller: _nameController,
-              decoration: const InputDecoration(
-                labelText: 'சீட்டு பெயர் (Chit Name)',
-                hintText: 'எ.கா. குடும்ப சீட்டு 2026',
-                border: OutlineInputBorder(),
+    return ListenableBuilder(
+      listenable: AppLocaleController.instance,
+      builder: (context, _) => Scaffold(
+        appBar: AppBar(
+          title: Text(S.createChitTitle, style: const TextStyle(fontWeight: FontWeight.bold)),
+        ),
+        body: Form(
+          key: _formKey,
+          child: ListView(
+            padding: const EdgeInsets.all(16),
+            children: [
+              // Section 1: Basic
+              _buildSectionHeader(S.basicDetailsSection),
+              TextFormField(
+                controller: _nameController,
+                decoration: InputDecoration(
+                  labelText: S.chitNameLabel,
+                  hintText: S.chitNameHint,
+                  border: const OutlineInputBorder(),
+                ),
+                validator: (v) => v == null || v.trim().isEmpty ? S.nameRequired : null,
               ),
-              validator: (v) => v == null || v.trim().isEmpty ? 'பெயர் தேவை' : null,
-            ),
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                Expanded(
-                  child: TextFormField(
-                    controller: _amountController,
-                    keyboardType: TextInputType.number,
-                    decoration: const InputDecoration(
-                      labelText: 'தவணை தொகை (Contribution ₹)',
-                      prefixText: '₹ ',
-                      border: OutlineInputBorder(),
-                    ),
-                    onChanged: (_) => setState(() {}),
-                    validator: (v) {
-                      final n = double.tryParse(v ?? '');
-                      if (n == null || n <= 0) return 'சரியான தொகை தேவை';
-                      return null;
-                    },
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: DropdownButtonFormField<String>(
-                    initialValue: _period,
-                    decoration: const InputDecoration(
-                      labelText: 'கால இடைவெளி (Period)',
-                      border: OutlineInputBorder(),
-                    ),
-                    items: const [
-                      DropdownMenuItem(value: 'monthly', child: Text('மாதம் (Monthly)')),
-                      DropdownMenuItem(value: 'weekly', child: Text('வாரம் (Weekly)')),
-                    ],
-                    onChanged: (v) {
-                      if (v != null) setState(() => _period = v);
-                    },
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed: () async {
-                      final picked = await showDatePicker(
-                        context: context,
-                        initialDate: _startDate,
-                        firstDate: DateTime(2020),
-                        lastDate: DateTime(2035),
-                      );
-                      if (picked != null) {
-                        setState(() {
-                          _startDate = picked;
-                          _dueDay = picked.day;
-                        });
-                      }
-                    },
-                    icon: const Icon(Icons.calendar_today, size: 18),
-                    label: Text('தொடக்க நாள்: ${formatDate(_startDate)}'),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                SizedBox(
-                  width: 100,
-                  child: TextFormField(
-                    initialValue: '$_dueDay',
-                    keyboardType: TextInputType.number,
-                    decoration: const InputDecoration(
-                      labelText: 'தவணை நாள்',
-                      hintText: '5',
-                      border: OutlineInputBorder(),
-                    ),
-                    onChanged: (v) {
-                      final n = int.tryParse(v);
-                      if (n != null && n >= 1 && n <= 31) {
-                        _dueDay = n;
-                      }
-                    },
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 24),
-
-            // Section 2: Interest
-            _buildSectionHeader('2. வட்டி முறை (Interest Mode)'),
-            TextFormField(
-              controller: _rateController,
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
-              decoration: const InputDecoration(
-                labelText: 'வட்டி விகிதம் (Interest Rate %)',
-                suffixText: '%',
-                border: OutlineInputBorder(),
-              ),
-            ),
-            const SizedBox(height: 8),
-            RadioListTile<String>(
-              value: 'late_fee',
-              groupValue: _interestMode,
-              title: const Text('தாமத வட்டி (Late-fee)'),
-              subtitle: const Text('தாமதமாக கட்டுபவர் மட்டும் வட்டி செலுத்துவார்'),
-              onChanged: (v) => setState(() => _interestMode = v!),
-            ),
-            RadioListTile<String>(
-              value: 'recipient_pays',
-              groupValue: _interestMode,
-              title: const Text('பிடித்தவர் வட்டி கட்டுவது (Recipient-pays)'),
-              subtitle: const Text('பணம் எடுப்பவர் வட்டி கட்டுவார், மற்றவர்களுக்கு பகிர்ந்தளிக்கப்படும்'),
-              onChanged: (v) => setState(() => _interestMode = v!),
-            ),
-            const SizedBox(height: 24),
-
-            // Section 3: Members & Payout Order
-            _buildSectionHeader('3. உறுப்பினர்கள் மற்றும் முறை (Members & Payout Order)'),
-            Text(
-              'வரிசை எண்தான் பணம் எடுக்கும் முறை (Rotation Order):',
-              style: TextStyle(fontSize: 13, color: Colors.grey.shade700),
-            ),
-            const SizedBox(height: 8),
-            ReorderableListView.builder(
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              itemCount: _members.length,
-              onReorder: (oldIndex, newIndex) {
-                setState(() {
-                  if (oldIndex < newIndex) newIndex -= 1;
-                  final item = _members.removeAt(oldIndex);
-                  _members.insert(newIndex, item);
-                });
-              },
-              itemBuilder: (context, index) {
-                final m = _members[index];
-                return Card(
-                  key: ValueKey(m['name']! + index.toString()),
-                  margin: const EdgeInsets.only(bottom: 6),
-                  child: ListTile(
-                    leading: CircleAvatar(
-                      backgroundColor: Theme.of(context).colorScheme.primaryContainer,
-                      child: Text('${index + 1}'),
-                    ),
-                    title: Text(m['name']!, style: const TextStyle(fontWeight: FontWeight.w600)),
-                    subtitle: Text(m['phone'] ?? ''),
-                    trailing: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        IconButton(
-                          icon: const Icon(Icons.delete_outline, color: Colors.red),
-                          onPressed: () => _removeMember(index),
-                        ),
-                        const Icon(Icons.drag_handle),
-                      ],
-                    ),
-                  ),
-                );
-              },
-            ),
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                Expanded(
-                  flex: 2,
-                  child: TextField(
-                    controller: _newMemberNameController,
-                    decoration: const InputDecoration(
-                      labelText: 'உறுப்பினர் பெயர்',
-                      hintText: 'பெயர்',
-                      border: OutlineInputBorder(),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  flex: 2,
-                  child: TextField(
-                    controller: _newMemberPhoneController,
-                    keyboardType: TextInputType.phone,
-                    decoration: const InputDecoration(
-                      labelText: 'போன் எண்',
-                      hintText: '9876543210',
-                      border: OutlineInputBorder(),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                IconButton.filled(
-                  onPressed: _addMember,
-                  icon: const Icon(Icons.add),
-                  tooltip: 'சேர்',
-                ),
-              ],
-            ),
-            const SizedBox(height: 24),
-
-            // Section 4: Summary & Submit
-            _buildSectionHeader('4. முன்னோட்டம் (Preview & Summary)'),
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: Theme.of(context).colorScheme.surfaceContainerHighest,
-                borderRadius: BorderRadius.circular(16),
-              ),
-              child: Column(
+              const SizedBox(height: 12),
+              Row(
                 children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      const Text('மொத்த உறுப்பினர்கள்:'),
-                      Text('${_members.length} பேர்', style: const TextStyle(fontWeight: FontWeight.bold)),
-                    ],
-                  ),
-                  const SizedBox(height: 6),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      const Text('மொத்த ரவுண்டுகள்:'),
-                      Text('${_members.length} தவணைகள்', style: const TextStyle(fontWeight: FontWeight.bold)),
-                    ],
-                  ),
-                  const SizedBox(height: 6),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      const Text('ஒவ்வொரு ரவுண்டு Pot தொகை:'),
-                      Text(
-                        formatMoney('₹', totalPot),
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                          color: Theme.of(context).colorScheme.primary,
-                        ),
+                  Expanded(
+                    child: TextFormField(
+                      controller: _amountController,
+                      keyboardType: TextInputType.number,
+                      decoration: InputDecoration(
+                        labelText: S.contributionLabel,
+                        prefixText: '₹ ',
+                        border: const OutlineInputBorder(),
                       ),
-                    ],
+                      onChanged: (_) => setState(() {}),
+                      validator: (v) {
+                        final n = double.tryParse(v ?? '');
+                        if (n == null || n <= 0) return S.validAmountRequired;
+                        return null;
+                      },
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: DropdownButtonFormField<String>(
+                      initialValue: _period,
+                      decoration: InputDecoration(
+                        labelText: S.periodLabel,
+                        border: const OutlineInputBorder(),
+                      ),
+                      items: [
+                        DropdownMenuItem(value: 'monthly', child: Text(S.monthly)),
+                        DropdownMenuItem(value: 'weekly', child: Text(S.weekly)),
+                      ],
+                      onChanged: (v) {
+                        if (v != null) setState(() => _period = v);
+                      },
+                    ),
                   ),
                 ],
               ),
-            ),
-            const SizedBox(height: 24),
-            FilledButton(
-              onPressed: _saving ? null : _submit,
-              style: FilledButton.styleFrom(
-                padding: const EdgeInsets.symmetric(vertical: 16),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: () async {
+                        final picked = await showDatePicker(
+                          context: context,
+                          initialDate: _startDate,
+                          firstDate: DateTime(2020),
+                          lastDate: DateTime(2035),
+                        );
+                        if (picked != null) {
+                          setState(() {
+                            _startDate = picked;
+                            _dueDay = picked.day;
+                          });
+                        }
+                      },
+                      icon: const Icon(Icons.calendar_today, size: 18),
+                      label: Text(S.startDateLabel(formatDate(_startDate))),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  SizedBox(
+                    width: 110,
+                    child: TextFormField(
+                      initialValue: '$_dueDay',
+                      keyboardType: TextInputType.number,
+                      decoration: InputDecoration(
+                        labelText: S.dueDayLabel,
+                        hintText: '5',
+                        border: const OutlineInputBorder(),
+                      ),
+                      onChanged: (v) {
+                        final n = int.tryParse(v);
+                        if (n != null && n >= 1 && n <= 31) {
+                          _dueDay = n;
+                        }
+                      },
+                    ),
+                  ),
+                ],
               ),
-              child: _saving
-                  ? const SizedBox(
-                      width: 20,
-                      height: 20,
-                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                    )
-                  : const Text('சீட்டை உருவாக்கு (Create Chit)', style: TextStyle(fontSize: 16)),
-            ),
-            const SizedBox(height: 32),
-          ],
+              const SizedBox(height: 24),
+
+              // Section 2: Interest
+              _buildSectionHeader(S.interestModeSection),
+              TextFormField(
+                controller: _rateController,
+                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                decoration: InputDecoration(
+                  labelText: S.interestRateLabel,
+                  suffixText: '%',
+                  border: const OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 8),
+              RadioGroup<String>(
+                groupValue: _interestMode,
+                onChanged: (v) {
+                  if (v != null) setState(() => _interestMode = v);
+                },
+                child: Column(
+                  children: [
+                    RadioListTile<String>(
+                      value: 'late_fee',
+                      title: Text(S.lateFeeTitle),
+                      subtitle: Text(S.lateFeeSubtitle),
+                    ),
+                    RadioListTile<String>(
+                      value: 'recipient_pays',
+                      title: Text(S.recipientPaysTitle),
+                      subtitle: Text(S.recipientPaysSubtitle),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 24),
+
+              // Section 3: Members & Payout Order
+              _buildSectionHeader(S.membersOrderSection),
+              Text(
+                S.rotationOrderSubtitle,
+                style: TextStyle(fontSize: 13, color: Colors.grey.shade700),
+              ),
+              const SizedBox(height: 8),
+              ReorderableListView.builder(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                itemCount: _members.length,
+                onReorderItem: (oldIndex, newIndex) {
+                  setState(() {
+                    final item = _members.removeAt(oldIndex);
+                    _members.insert(newIndex, item);
+                  });
+                },
+                itemBuilder: (context, index) {
+                  final m = _members[index];
+                  return Card(
+                    key: ValueKey(m['name']! + index.toString()),
+                    margin: const EdgeInsets.only(bottom: 6),
+                    child: ListTile(
+                      leading: CircleAvatar(
+                        backgroundColor: Theme.of(context).colorScheme.primaryContainer,
+                        child: Text('${index + 1}'),
+                      ),
+                      title: Text(m['name']!, style: const TextStyle(fontWeight: FontWeight.w600)),
+                      subtitle: Text(m['phone'] ?? ''),
+                      trailing: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          IconButton(
+                            icon: const Icon(Icons.delete_outline, color: Colors.red),
+                            onPressed: () => _removeMember(index),
+                          ),
+                          const Icon(Icons.drag_handle),
+                        ],
+                      ),
+                    ),
+                  );
+                },
+              ),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Expanded(
+                    flex: 2,
+                    child: TextField(
+                      controller: _newMemberNameController,
+                      decoration: InputDecoration(
+                        labelText: S.memberNameLabel,
+                        hintText: S.memberNameHint,
+                        border: const OutlineInputBorder(),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    flex: 2,
+                    child: TextField(
+                      controller: _newMemberPhoneController,
+                      keyboardType: TextInputType.phone,
+                      decoration: InputDecoration(
+                        labelText: S.phoneLabel,
+                        hintText: '9876543210',
+                        border: const OutlineInputBorder(),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  IconButton.filled(
+                    onPressed: _addMember,
+                    icon: const Icon(Icons.add),
+                    tooltip: S.addMemberTooltip,
+                  ),
+                ],
+              ),
+              const SizedBox(height: 24),
+
+              // Section 4: Summary & Submit
+              _buildSectionHeader(S.summaryPreviewSection),
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: Column(
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(S.totalMembers),
+                        Text(S.membersCount(_members.length), style: const TextStyle(fontWeight: FontWeight.bold)),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(S.totalRoundsLabel),
+                        Text(S.roundsCount(_members.length), style: const TextStyle(fontWeight: FontWeight.bold)),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(S.potPerRound),
+                        Text(
+                          formatMoney('₹', totalPot),
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                            color: Theme.of(context).colorScheme.primary,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 24),
+              FilledButton(
+                onPressed: _saving ? null : _submit,
+                style: FilledButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                ),
+                child: _saving
+                    ? const SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                      )
+                    : Text(S.createChitButton, style: const TextStyle(fontSize: 16)),
+              ),
+              const SizedBox(height: 32),
+            ],
+          ),
         ),
       ),
     );
