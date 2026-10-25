@@ -1,14 +1,14 @@
 import 'package:flutter/material.dart';
-import 'package:share_plus/share_plus.dart';
-import '../../core/constants.dart';
+import '../../core/locale_controller.dart';
+import '../../core/strings.dart';
 import '../../core/utils.dart';
-import '../../data/database/database_helper.dart';
 import '../../data/models/chit_group.dart';
 import '../../data/models/chit_round.dart';
 import '../../data/repositories/group_repository.dart';
 import '../../data/repositories/round_repository.dart';
 import '../group/group_detail_screen.dart';
 import '../group/new_chit_screen.dart';
+import '../settings/settings_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -18,6 +18,57 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
+  int _currentIndex = 0;
+  final GlobalKey<_ChitsListTabState> _chitsListKey = GlobalKey<_ChitsListTabState>();
+
+  @override
+  Widget build(BuildContext context) {
+    return ListenableBuilder(
+      listenable: AppLocaleController.instance,
+      builder: (context, _) {
+        return Scaffold(
+          body: IndexedStack(
+            index: _currentIndex,
+            children: [
+              ChitsListTab(key: _chitsListKey),
+              const SettingsScreen(),
+            ],
+          ),
+          bottomNavigationBar: NavigationBar(
+            selectedIndex: _currentIndex,
+            onDestinationSelected: (index) {
+              setState(() => _currentIndex = index);
+              if (index == 0) {
+                _chitsListKey.currentState?.loadData();
+              }
+            },
+            destinations: [
+              NavigationDestination(
+                icon: const Icon(Icons.account_balance_wallet_outlined),
+                selectedIcon: const Icon(Icons.account_balance_wallet),
+                label: S.myChits,
+              ),
+              NavigationDestination(
+                icon: const Icon(Icons.settings_outlined),
+                selectedIcon: const Icon(Icons.settings),
+                label: S.settings,
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+class ChitsListTab extends StatefulWidget {
+  const ChitsListTab({super.key});
+
+  @override
+  State<ChitsListTab> createState() => _ChitsListTabState();
+}
+
+class _ChitsListTabState extends State<ChitsListTab> {
   final GroupRepository _groupRepo = GroupRepository();
   final RoundRepository _roundRepo = RoundRepository();
   bool _loading = true;
@@ -27,10 +78,10 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
-    _loadData();
+    loadData();
   }
 
-  Future<void> _loadData() async {
+  Future<void> loadData() async {
     setState(() => _loading = true);
     final groups = await _groupRepo.getAll();
     final Map<int, List<ChitRound>> roundsMap = {};
@@ -42,30 +93,10 @@ class _HomeScreenState extends State<HomeScreen> {
     if (mounted) {
       setState(() {
         _groups = groups;
+        _groupRounds.clear();
         _groupRounds.addAll(roundsMap);
         _loading = false;
       });
-    }
-  }
-
-  Future<void> _exportBackup() async {
-    try {
-      final json = await DatabaseHelper.instance.exportJson();
-      await Share.share(
-        json,
-        subject: 'Chit Notebook Backup - ${DateTime.now().toIso8601String().substring(0, 10)}',
-      );
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Backup export தயார்!')),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Backup பிழை: $e')),
-        );
-      }
     }
   }
 
@@ -73,14 +104,7 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('என் சீட்கள்', style: TextStyle(fontWeight: FontWeight.bold)),
-        actions: [
-          IconButton(
-            tooltip: 'JSON Backup',
-            icon: const Icon(Icons.cloud_download_outlined),
-            onPressed: _exportBackup,
-          ),
-        ],
+        title: Text(S.myChits, style: const TextStyle(fontWeight: FontWeight.bold)),
       ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () async {
@@ -89,18 +113,18 @@ class _HomeScreenState extends State<HomeScreen> {
             MaterialPageRoute(builder: (_) => const NewChitScreen()),
           );
           if (created == true) {
-            _loadData();
+            loadData();
           }
         },
         icon: const Icon(Icons.add),
-        label: const Text('புதிய சீட்டு'),
+        label: Text(S.newChit),
       ),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : _groups.isEmpty
               ? _buildEmptyState()
               : RefreshIndicator(
-                  onRefresh: _loadData,
+                  onRefresh: loadData,
                   child: ListView(
                     padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                     children: [
@@ -123,13 +147,14 @@ class _HomeScreenState extends State<HomeScreen> {
           children: [
             Icon(Icons.menu_book_rounded, size: 80, color: Colors.grey.shade400),
             const SizedBox(height: 16),
-            const Text(
-              'முதல் சீட்டை உருவாக்குங்க',
-              style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+            Text(
+              S.createFirstChit,
+              style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+              textAlign: TextAlign.center,
             ),
             const SizedBox(height: 8),
             Text(
-              'உங்கள் குடும்பம் மற்றும் நண்பர்கள் சீட்டு கணக்கை எளிய முறையில் குறித்து வையுங்கள்.',
+              S.emptyChitsSubtitle,
               textAlign: TextAlign.center,
               style: TextStyle(color: Colors.grey.shade600),
             ),
@@ -141,11 +166,11 @@ class _HomeScreenState extends State<HomeScreen> {
                   MaterialPageRoute(builder: (_) => const NewChitScreen()),
                 );
                 if (created == true) {
-                  _loadData();
+                  loadData();
                 }
               },
               icon: const Icon(Icons.add),
-              label: const Text('சீட்டு தொடங்கு'),
+              label: Text(S.startChit),
             ),
           ],
         ),
@@ -167,7 +192,7 @@ class _HomeScreenState extends State<HomeScreen> {
           Column(
             children: [
               Text(
-                'மொத்த சீட்கள்',
+                S.totalChits,
                 style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
               ),
               const SizedBox(height: 4),
@@ -181,7 +206,7 @@ class _HomeScreenState extends State<HomeScreen> {
           Column(
             children: [
               Text(
-                'செயலில் உள்ளவை',
+                S.activeCountLabel,
                 style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
               ),
               const SizedBox(height: 4),
@@ -211,7 +236,7 @@ class _HomeScreenState extends State<HomeScreen> {
     }
     activeRound ??= rounds.isNotEmpty ? rounds.last : null;
 
-    final periodTamil = Labels.periods[group.period] ?? group.period;
+    final periodLabel = S.period(group.period);
     final amountFormatted = formatMoney(group.currency, group.contributionAmount);
 
     return Card(
@@ -227,7 +252,7 @@ class _HomeScreenState extends State<HomeScreen> {
               builder: (_) => GroupDetailScreen(groupId: group.id!),
             ),
           );
-          _loadData();
+          loadData();
         },
         child: Padding(
           padding: const EdgeInsets.all(16),
@@ -247,12 +272,12 @@ class _HomeScreenState extends State<HomeScreen> {
                     padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                     decoration: BoxDecoration(
                       color: group.status == 'active'
-                          ? Colors.green.withOpacity(0.12)
-                          : Colors.grey.withOpacity(0.2),
+                          ? Colors.green.withValues(alpha: 0.12)
+                          : Colors.grey.withValues(alpha: 0.2),
                       borderRadius: BorderRadius.circular(12),
                     ),
                     child: Text(
-                      group.status == 'active' ? 'செயலில் உள்ளது' : 'முடிந்தது',
+                      group.status == 'active' ? S.active : S.completed,
                       style: TextStyle(
                         fontSize: 12,
                         fontWeight: FontWeight.w600,
@@ -266,7 +291,7 @@ class _HomeScreenState extends State<HomeScreen> {
               Row(
                 children: [
                   Text(
-                    '$amountFormatted / $periodTamil',
+                    '$amountFormatted / $periodLabel',
                     style: TextStyle(
                       fontSize: 15,
                       fontWeight: FontWeight.w600,
@@ -275,7 +300,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                   const Spacer(),
                   Text(
-                    'மொத்தம்: ${rounds.length} ரவுண்டுகள்',
+                    S.totalRounds(rounds.length),
                     style: TextStyle(fontSize: 13, color: Colors.grey.shade600),
                   ),
                 ],
@@ -290,13 +315,13 @@ class _HomeScreenState extends State<HomeScreen> {
                         const Icon(Icons.sync_rounded, size: 16, color: Colors.orange),
                         const SizedBox(width: 4),
                         Text(
-                          'ரவுண்டு ${activeRound.seqNo} / ${rounds.length}',
+                          S.roundProgress(activeRound.seqNo, rounds.length),
                           style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
                         ),
                       ],
                     ),
                     Text(
-                      'தவணை: ${formatDate(activeRound.dueDate)}',
+                      S.dueDate(formatDate(activeRound.dueDate)),
                       style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
                     ),
                   ],
