@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
-import '../../core/constants.dart';
+import '../../core/locale_controller.dart';
+import '../../core/strings.dart';
 import '../../core/utils.dart';
 import '../../data/database/database_helper.dart';
 import '../../data/models/chit_group.dart';
@@ -77,7 +78,7 @@ class _RoundDetailScreenState extends State<RoundDetailScreen> {
     if (_round == null || _group == null || member.id == null) return;
     if (_round!.status == 'paid_out') {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('இந்த ரவுண்டுக்கு Payout முடிந்துவிட்டது. மாற்ற இயலாது.')),
+        SnackBar(content: Text(S.cannotModifyPaidOut)),
       );
       return;
     }
@@ -89,14 +90,14 @@ class _RoundDetailScreenState extends State<RoundDetailScreen> {
       final confirm = await showDialog<bool>(
         context: context,
         builder: (ctx) => AlertDialog(
-          title: const Text('வசூலை ரத்து செய்யவா?'),
-          content: Text('${member.name} அவர்களின் தவணை பதிவை நீக்க வேண்டுமா?'),
+          title: Text(S.cancelCollectionPrompt),
+          content: Text(S.cancelCollectionContent(member.name)),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('இல்லை')),
+            TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(S.cancel)),
             FilledButton(
               style: FilledButton.styleFrom(backgroundColor: Colors.red),
               onPressed: () => Navigator.pop(ctx, true),
-              child: const Text('ரத்து செய்'),
+              child: Text(S.delete),
             ),
           ],
         ),
@@ -106,27 +107,29 @@ class _RoundDetailScreenState extends State<RoundDetailScreen> {
         _loadData();
       }
     } else {
-      // Check if late
-      bool isLate = DateTime.now().isAfter(_round!.dueDate);
+      // Check if late (only after the due date calendar day has passed)
+      final now = DateTime.now();
+      final today = DateTime(now.year, now.month, now.day);
+      final dueCalendarDay = DateTime(_round!.dueDate.year, _round!.dueDate.month, _round!.dueDate.day);
+      bool isLate = today.isAfter(dueCalendarDay);
       if (isLate && _group!.interestMode == 'late_fee' && _group!.interestRatePct > 0) {
         final lateFee = _group!.contributionAmount * _group!.interestRatePct / 100;
         final lateConfirm = await showDialog<bool>(
           context: context,
           builder: (ctx) => AlertDialog(
-            title: const Text('தாமத வட்டி (Late Fee)'),
-            content: Text(
-              'தவணை தேதி முடிந்துவிட்டது (${formatDate(_round!.dueDate)}).\n\n'
-              '${formatMoney(_group!.currency, lateFee)} தாமத வட்டி கணக்கிடப்படும்.\n'
-              'தாமதக் கட்டணமாக குறிக்கவா?',
-            ),
+            title: Text(S.lateFeeDialogTitle),
+            content: Text(S.lateFeeDialogContent(
+              formatDate(_round!.dueDate),
+              formatMoney(_group!.currency, lateFee),
+            )),
             actions: [
               TextButton(
                 onPressed: () => Navigator.pop(ctx, false),
-                child: const Text('வட்டி வேண்டாம் (On-time)'),
+                child: Text(S.onTimeNoFee),
               ),
               FilledButton(
                 onPressed: () => Navigator.pop(ctx, true),
-                child: const Text('தாமதம் (Late)'),
+                child: Text(S.markLate),
               ),
             ],
           ),
@@ -150,7 +153,7 @@ class _RoundDetailScreenState extends State<RoundDetailScreen> {
     if (_round == null || _group == null) return;
     if (member.phone == null || member.phone!.trim().isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('இந்த உறுப்பினருக்கு போன் எண் இல்லை')),
+        SnackBar(content: Text(S.noPhoneForMember)),
       );
       return;
     }
@@ -169,18 +172,18 @@ class _RoundDetailScreenState extends State<RoundDetailScreen> {
     final pending = _members.where((m) => !_paidMemberIds.contains(m.id)).toList();
     if (pending.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('அனைவரும் செலுத்திவிட்டனர்!')),
+        SnackBar(content: Text(S.allPaidNotice)),
       );
       return;
     }
 
-    // Remind first pending member or show list
+    // Remind first pending member or show count
     final first = pending.first;
     if (first.phone != null && first.phone!.isNotEmpty) {
       await _sendWhatsAppReminder(first);
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('${pending.length} நபர்கள் இன்னும் செலுத்தவில்லை')),
+        SnackBar(content: Text(S.unpaidCountNotice(pending.length))),
       );
     }
   }
@@ -191,13 +194,15 @@ class _RoundDetailScreenState extends State<RoundDetailScreen> {
     final pot = _group!.contributionAmount * _members.length;
     final unpaidCount = _members.length - _paidMemberIds.length;
 
-    double interest = 0;
-    double dividend = 0;
-    if (_group!.interestMode == 'recipient_pays' && _group!.interestRatePct > 0) {
-      interest = pot * _group!.interestRatePct / 100;
-      final othersCount = _members.length - 1;
-      dividend = othersCount > 0 ? interest / othersCount : 0;
-    }
+    final calc = _group!.interestMode == 'recipient_pays'
+        ? calculateRecipientPays(
+            pot: pot,
+            interestRatePct: _group!.interestRatePct,
+            totalMembers: _members.length,
+          )
+        : (interest: 0.0, dividend: 0.0);
+    final interest = calc.interest;
+    final dividend = calc.dividend;
 
     showModalBottomSheet(
       context: context,
@@ -214,9 +219,9 @@ class _RoundDetailScreenState extends State<RoundDetailScreen> {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                const Text(
-                  'Payout உறுதிப்படுத்தல்',
-                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                Text(
+                  S.payoutConfirmationTitle,
+                  style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
                 ),
                 IconButton(onPressed: () => Navigator.pop(ctx), icon: const Icon(Icons.close)),
               ],
@@ -226,15 +231,15 @@ class _RoundDetailScreenState extends State<RoundDetailScreen> {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                const Text('பணம் பெறுபவர்:'),
-                Text(recipient?.name ?? 'தெரியவில்லை', style: const TextStyle(fontWeight: FontWeight.bold)),
+                Text(S.payoutRecipient),
+                Text(recipient?.name ?? S.unknownRecipient, style: const TextStyle(fontWeight: FontWeight.bold)),
               ],
             ),
             const SizedBox(height: 8),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                const Text('மொத்த Pot தொகை:'),
+                Text(S.totalPotAmount),
                 Text(
                   formatMoney(_group!.currency, pot),
                   style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.green),
@@ -246,7 +251,7 @@ class _RoundDetailScreenState extends State<RoundDetailScreen> {
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Text('பிடித்தவர் வட்டி (${_group!.interestRatePct}%):'),
+                  Text(S.recipientInterestLabel(_group!.interestRatePct)),
                   Text(formatMoney(_group!.currency, interest), style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.red)),
                 ],
               ),
@@ -254,7 +259,7 @@ class _RoundDetailScreenState extends State<RoundDetailScreen> {
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  const Text('மற்றவர்களுக்கு பங்கு (Dividend/member):'),
+                  Text(S.dividendPerMemberLabel),
                   Text(formatMoney(_group!.currency, dividend), style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.blue)),
                 ],
               ),
@@ -274,7 +279,7 @@ class _RoundDetailScreenState extends State<RoundDetailScreen> {
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(
-                        '$unpaidCount நபர்கள் இன்னும் கட்டவில்லை. அவர்களுக்கு நிலுவை (Arrears) என்று பதிவாகும்.',
+                        S.arrearsWarning(unpaidCount),
                         style: TextStyle(fontSize: 12, color: Colors.amber.shade900),
                       ),
                     ),
@@ -291,7 +296,7 @@ class _RoundDetailScreenState extends State<RoundDetailScreen> {
                   await _roundRepo.runPayout(round: _round!, group: _group!);
                   if (mounted) {
                     ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Payout வெற்றிகரமாக பதிவு செய்யப்பட்டது!')),
+                      SnackBar(content: Text(S.payoutSuccess)),
                     );
                   }
                   _loadData();
@@ -300,7 +305,7 @@ class _RoundDetailScreenState extends State<RoundDetailScreen> {
                   backgroundColor: Colors.green.shade700,
                   padding: const EdgeInsets.symmetric(vertical: 16),
                 ),
-                child: const Text('Payout செய் (Confirm & Close Round)', style: TextStyle(fontSize: 16)),
+                child: Text(S.confirmPayoutButton, style: const TextStyle(fontSize: 16)),
               ),
             ),
           ],
@@ -319,13 +324,13 @@ class _RoundDetailScreenState extends State<RoundDetailScreen> {
       context: context,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setDialogState) => AlertDialog(
-          title: const Text('பணம் எடுப்பவரை மாற்றுதல்'),
+          title: Text(S.changeRecipientDialogTitle),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
               DropdownButtonFormField<int>(
                 initialValue: selectedId,
-                decoration: const InputDecoration(labelText: 'புதிய நபர்', border: OutlineInputBorder()),
+                decoration: InputDecoration(labelText: S.newRecipientLabel, border: const OutlineInputBorder()),
                 items: [
                   for (final m in _members)
                     DropdownMenuItem(value: m.id, child: Text(m.name)),
@@ -335,23 +340,23 @@ class _RoundDetailScreenState extends State<RoundDetailScreen> {
               const SizedBox(height: 12),
               TextField(
                 controller: reasonController,
-                decoration: const InputDecoration(
-                  labelText: 'காரணம் (Reason - Mandatory)',
-                  hintText: 'எ.கா. அவசர தேவைக்காக மாற்றப்பட்டது',
-                  border: OutlineInputBorder(),
+                decoration: InputDecoration(
+                  labelText: S.reasonLabel,
+                  hintText: S.reasonHint,
+                  border: const OutlineInputBorder(),
                 ),
               ),
             ],
           ),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('ரத்து')),
+            TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(S.cancel)),
             FilledButton(
               onPressed: () {
                 if (selectedId != null && reasonController.text.trim().isNotEmpty) {
                   Navigator.pop(ctx, true);
                 }
               },
-              child: const Text('மாற்று'),
+              child: Text(S.ok),
             ),
           ],
         ),
@@ -370,70 +375,75 @@ class _RoundDetailScreenState extends State<RoundDetailScreen> {
 
   @override
   Widget build(BuildContext context) {
-    if (_loading) {
-      return const Scaffold(body: Center(child: CircularProgressIndicator()));
-    }
+    return ListenableBuilder(
+      listenable: AppLocaleController.instance,
+      builder: (context, _) {
+        if (_loading) {
+          return const Scaffold(body: Center(child: CircularProgressIndicator()));
+        }
 
-    if (_round == null || _group == null) {
-      return Scaffold(
-        appBar: AppBar(title: const Text('ரவுண்டு')),
-        body: const Center(child: Text('ரவுண்டு விவரம் கிடைக்கவில்லை')),
-      );
-    }
+        if (_round == null || _group == null) {
+          return Scaffold(
+            appBar: AppBar(title: Text(S.roundTitle(1))),
+            body: Center(child: Text(S.roundDetailsNotFound)),
+          );
+        }
 
-    final round = _round!;
-    final group = _group!;
-    final recipient = _memberMap[round.recipientMemberId];
-    final accountable = _memberMap[round.accountableMemberId];
-    final paidCount = _paidMemberIds.length;
-    final totalCount = _members.length;
-    final pendingCount = totalCount - paidCount;
-    final isPaidOut = round.status == 'paid_out';
+        final round = _round!;
+        final group = _group!;
+        final recipient = _memberMap[round.recipientMemberId];
+        final accountable = _memberMap[round.accountableMemberId];
+        final paidCount = _paidMemberIds.length;
+        final totalCount = _members.length;
+        final pendingCount = totalCount - paidCount;
+        final isPaidOut = round.status == 'paid_out';
 
-    return Scaffold(
-      appBar: AppBar(
-        title: Text('ரவுண்டு ${round.seqNo}'),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.swap_horiz_rounded),
-            tooltip: 'Recipient-ஐ மாற்று',
-            onPressed: isPaidOut ? null : _changeRecipient,
-          ),
-        ],
-      ),
-      bottomNavigationBar: _buildStickyBottomBar(pendingCount, isPaidOut),
-      body: ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
-          // Header Card
-          _buildHeaderCard(round, group, recipient, accountable, paidCount, totalCount),
-          const SizedBox(height: 16),
-
-          // Member collection list header
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              const Text(
-                'உறுப்பினர்கள் வசூல் விவரம்',
-                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-              ),
-              Text(
-                '$paidCount / $totalCount முடிந்தது',
-                style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.bold,
-                  color: paidCount == totalCount ? Colors.green : Colors.grey.shade700,
-                ),
+        return Scaffold(
+          appBar: AppBar(
+            title: Text(S.roundTitle(round.seqNo)),
+            actions: [
+              IconButton(
+                icon: const Icon(Icons.swap_horiz_rounded),
+                tooltip: S.changeRecipientTooltip,
+                onPressed: isPaidOut ? null : _changeRecipient,
               ),
             ],
           ),
-          const SizedBox(height: 8),
+          bottomNavigationBar: _buildStickyBottomBar(pendingCount, isPaidOut),
+          body: ListView(
+            padding: const EdgeInsets.all(16),
+            children: [
+              // Header Card
+              _buildHeaderCard(round, group, recipient, accountable, paidCount, totalCount),
+              const SizedBox(height: 16),
 
-          // Member Rows
-          for (final member in _members) _buildMemberRow(member, isPaidOut),
-          const SizedBox(height: 80),
-        ],
-      ),
+              // Member collection list header
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    S.memberCollectionProgress,
+                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                  ),
+                  Text(
+                    S.progressCount(paidCount, totalCount),
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.bold,
+                      color: paidCount == totalCount ? Colors.green : Colors.grey.shade700,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+
+              // Member Rows
+              for (final member in _members) _buildMemberRow(member, isPaidOut),
+              const SizedBox(height: 80),
+            ],
+          ),
+        );
+      },
     );
   }
 
@@ -445,7 +455,7 @@ class _RoundDetailScreenState extends State<RoundDetailScreen> {
     int paidCount,
     int totalCount,
   ) {
-    final statusLabel = Labels.roundStatuses[round.status] ?? round.status;
+    final statusLabel = S.roundStatus(round.status);
     return Card(
       elevation: 2,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
@@ -460,12 +470,12 @@ class _RoundDetailScreenState extends State<RoundDetailScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'பணம் பெறுபவர் (Recipient)',
+                      S.recipientBadge,
                       style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
                     ),
                     const SizedBox(height: 2),
                     Text(
-                      recipient?.name ?? 'யாரும் இல்லை',
+                      recipient?.name ?? S.noRecipient,
                       style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                     ),
                   ],
@@ -499,15 +509,15 @@ class _RoundDetailScreenState extends State<RoundDetailScreen> {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text('தவணை: ${formatMoney(group.currency, group.contributionAmount)}', style: const TextStyle(fontSize: 13)),
-                Text('கடைசி நாள்: ${formatDate(round.dueDate)}', style: const TextStyle(fontSize: 13)),
+                Text(S.contributionChip(formatMoney(group.currency, group.contributionAmount)), style: const TextStyle(fontSize: 13)),
+                Text(S.dueDate(formatDate(round.dueDate)), style: const TextStyle(fontSize: 13)),
               ],
             ),
             const SizedBox(height: 4),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text('பொறுப்பாளர்: ${accountable?.name ?? "இல்லை"}', style: const TextStyle(fontSize: 13)),
+                Text(S.accountableLabel(accountable?.name), style: const TextStyle(fontSize: 13)),
                 Text('Pot: ${formatMoney(group.currency, group.contributionAmount * totalCount)}', style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
               ],
             ),
@@ -549,7 +559,7 @@ class _RoundDetailScreenState extends State<RoundDetailScreen> {
         ),
         title: Text(member.name, style: const TextStyle(fontWeight: FontWeight.w600)),
         subtitle: Text(
-          isPaid ? 'செலுத்தப்பட்டது (Paid)' : (member.phone ?? 'பாக்கி (Pending)'),
+          isPaid ? S.paidStatus : (member.phone ?? S.pendingStatus),
           style: TextStyle(
             color: isPaid ? Colors.green.shade700 : Colors.red.shade700,
             fontSize: 12,
@@ -571,7 +581,7 @@ class _RoundDetailScreenState extends State<RoundDetailScreen> {
                 backgroundColor: isPaid ? Colors.green.shade100 : null,
                 foregroundColor: isPaid ? Colors.green.shade900 : null,
               ),
-              child: Text(isPaid ? 'Paid ✓' : 'Mark Paid'),
+              child: Text(isPaid ? S.paidCheck : S.markPaid),
             ),
           ],
         ),
@@ -588,7 +598,7 @@ class _RoundDetailScreenState extends State<RoundDetailScreen> {
         color: Theme.of(context).cardColor,
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.08),
+            color: Colors.black.withValues(alpha: 0.08),
             offset: const Offset(0, -2),
             blurRadius: 8,
           ),
@@ -603,7 +613,7 @@ class _RoundDetailScreenState extends State<RoundDetailScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    pendingCount == 0 ? 'அனைவரும் கட்டினர்' : '$pendingCount பேர் பாக்கி',
+                    S.allPaidCountMessage(pendingCount),
                     style: TextStyle(
                       fontSize: 14,
                       fontWeight: FontWeight.bold,
@@ -622,7 +632,7 @@ class _RoundDetailScreenState extends State<RoundDetailScreen> {
               OutlinedButton.icon(
                 onPressed: _remindAllPending,
                 icon: const Icon(Icons.chat_bubble_outline, size: 16),
-                label: const Text('Remind'),
+                label: Text(S.remindButton),
               ),
               const SizedBox(width: 8),
             ],
@@ -631,7 +641,7 @@ class _RoundDetailScreenState extends State<RoundDetailScreen> {
               style: FilledButton.styleFrom(
                 backgroundColor: isPaidOut ? Colors.grey : Colors.green.shade700,
               ),
-              child: Text(isPaidOut ? 'முடிந்தது' : 'Payout →'),
+              child: Text(isPaidOut ? S.done : S.payoutButton),
             ),
           ],
         ),
