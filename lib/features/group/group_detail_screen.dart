@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
-import '../../core/constants.dart';
+import '../../core/locale_controller.dart';
+import '../../core/strings.dart';
 import '../../core/utils.dart';
 import '../../data/models/chit_group.dart';
 import '../../data/models/chit_round.dart';
@@ -59,6 +60,7 @@ class _GroupDetailScreenState extends State<GroupDetailScreen> with SingleTicker
         _group = group;
         _rounds = rounds;
         _members = members;
+        _memberMap.clear();
         _memberMap.addAll(map);
         _loading = false;
       });
@@ -69,14 +71,14 @@ class _GroupDetailScreenState extends State<GroupDetailScreen> with SingleTicker
     final confirm = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('சீட்டை நீக்க வேண்டுமா?'),
-        content: const Text('பரிவர்த்தனைகள் எதுவும் இல்லை என்றால் மட்டுமே நீக்க முடியும்.'),
+        title: Text(S.deleteChitPrompt),
+        content: Text(S.deleteChitWarning),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('ரத்து')),
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(S.cancel)),
           FilledButton(
             style: FilledButton.styleFrom(backgroundColor: Colors.red),
             onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('நீக்கு'),
+            child: Text(S.delete),
           ),
         ],
       ),
@@ -88,7 +90,7 @@ class _GroupDetailScreenState extends State<GroupDetailScreen> with SingleTicker
       await _groupRepo.deleteIfEmpty(widget.groupId);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('சீட்டு நீக்கப்பட்டது')),
+          SnackBar(content: Text(S.chitDeleted)),
         );
         Navigator.pop(context);
       }
@@ -97,10 +99,10 @@ class _GroupDetailScreenState extends State<GroupDetailScreen> with SingleTicker
         showDialog(
           context: context,
           builder: (ctx) => AlertDialog(
-            title: const Text('நீக்க இயலவில்லை'),
+            title: Text(S.cannotDelete),
             content: Text(e.toString().replaceAll('StateError: ', '')),
             actions: [
-              TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('சரி')),
+              TextButton(onPressed: () => Navigator.pop(ctx), child: Text(S.ok)),
             ],
           ),
         );
@@ -110,85 +112,90 @@ class _GroupDetailScreenState extends State<GroupDetailScreen> with SingleTicker
 
   @override
   Widget build(BuildContext context) {
-    if (_loading) {
-      return const Scaffold(body: Center(child: CircularProgressIndicator()));
-    }
+    return ListenableBuilder(
+      listenable: AppLocaleController.instance,
+      builder: (context, _) {
+        if (_loading) {
+          return const Scaffold(body: Center(child: CircularProgressIndicator()));
+        }
 
-    if (_group == null) {
-      return Scaffold(
-        appBar: AppBar(title: const Text('சீட்டு')),
-        body: const Center(child: Text('சீட்டு விவரம் கிடைக்கவில்லை')),
-      );
-    }
+        if (_group == null) {
+          return Scaffold(
+            appBar: AppBar(title: Text(S.myChits)),
+            body: Center(child: Text(S.groupDetailsNotFound)),
+          );
+        }
 
-    final group = _group!;
-    ChitRound? activeRound;
-    for (final r in _rounds) {
-      if (r.status != 'paid_out') {
-        activeRound = r;
-        break;
-      }
-    }
-    activeRound ??= _rounds.isNotEmpty ? _rounds.last : null;
+        final group = _group!;
+        ChitRound? activeRound;
+        for (final r in _rounds) {
+          if (r.status != 'paid_out') {
+            activeRound = r;
+            break;
+          }
+        }
+        activeRound ??= _rounds.isNotEmpty ? _rounds.last : null;
 
-    final potAmount = group.contributionAmount * _members.length;
+        final potAmount = group.contributionAmount * _members.length;
 
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(group.name, style: const TextStyle(fontWeight: FontWeight.bold)),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.delete_outline, color: Colors.red),
-            tooltip: 'சீட்டை நீக்கு',
-            onPressed: _handleDelete,
-          ),
-        ],
-      ),
-      body: NestedScrollView(
-        headerSliverBuilder: (context, innerBoxIsScrolled) => [
-          SliverToBoxAdapter(
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // Active Round Card
-                  if (activeRound != null) _buildActiveRoundHero(activeRound, potAmount),
-                  const SizedBox(height: 16),
-                  // Group metadata chip row
-                  _buildMetadataChips(group, potAmount),
-                ],
+        return Scaffold(
+          appBar: AppBar(
+            title: Text(group.name, style: const TextStyle(fontWeight: FontWeight.bold)),
+            actions: [
+              IconButton(
+                icon: const Icon(Icons.delete_outline, color: Colors.red),
+                tooltip: S.deleteChitTooltip,
+                onPressed: _handleDelete,
               ),
+            ],
+          ),
+          body: NestedScrollView(
+            headerSliverBuilder: (context, innerBoxIsScrolled) => [
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // Active Round Card
+                      if (activeRound != null) _buildActiveRoundHero(activeRound, potAmount),
+                      const SizedBox(height: 16),
+                      // Group metadata chip row
+                      _buildMetadataChips(group, potAmount),
+                    ],
+                  ),
+                ),
+              ),
+              SliverPersistentHeader(
+                pinned: true,
+                delegate: _SliverTabBarDelegate(
+                  TabBar(
+                    controller: _tabController,
+                    tabs: [
+                      Tab(text: S.membersTab(_members.length)),
+                      Tab(text: S.roundsTab(_rounds.length)),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+            body: TabBarView(
+              controller: _tabController,
+              children: [
+                _buildMembersTab(),
+                _buildRoundsTab(),
+              ],
             ),
           ),
-          SliverPersistentHeader(
-            pinned: true,
-            delegate: _SliverTabBarDelegate(
-              TabBar(
-                controller: _tabController,
-                tabs: [
-                  Tab(text: 'உறுப்பினர்கள் (${_members.length})'),
-                  Tab(text: 'ரவுண்டுகள் (${_rounds.length})'),
-                ],
-              ),
-            ),
-          ),
-        ],
-        body: TabBarView(
-          controller: _tabController,
-          children: [
-            _buildMembersTab(),
-            _buildRoundsTab(),
-          ],
-        ),
-      ),
+        );
+      },
     );
   }
 
   Widget _buildActiveRoundHero(ChitRound round, double potAmount) {
     final recipient = _memberMap[round.recipientMemberId];
     final accountable = _memberMap[round.accountableMemberId];
-    final statusLabel = Labels.roundStatuses[round.status] ?? round.status;
+    final statusLabel = S.roundStatus(round.status);
 
     return Card(
       color: Theme.of(context).colorScheme.primaryContainer,
@@ -203,7 +210,7 @@ class _GroupDetailScreenState extends State<GroupDetailScreen> with SingleTicker
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Text(
-                  'நடப்பு ரவுண்டு ${round.seqNo} / ${_rounds.length}',
+                  S.currentRoundProgress(round.seqNo, _rounds.length),
                   style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                 ),
                 Container(
@@ -230,10 +237,10 @@ class _GroupDetailScreenState extends State<GroupDetailScreen> with SingleTicker
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text('பணம் எடுப்பவர் (Recipient):', style: TextStyle(fontSize: 12, color: Colors.grey.shade800)),
+                      Text(S.recipientLabel, style: TextStyle(fontSize: 12, color: Colors.grey.shade800)),
                       const SizedBox(height: 2),
                       Text(
-                        recipient?.name ?? 'குறிக்கப்படவில்லை',
+                        recipient?.name ?? S.notAssigned,
                         style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                       ),
                     ],
@@ -243,7 +250,7 @@ class _GroupDetailScreenState extends State<GroupDetailScreen> with SingleTicker
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.end,
                     children: [
-                      Text('Pot தொகை:', style: TextStyle(fontSize: 12, color: Colors.grey.shade800)),
+                      Text(S.potAmountLabel, style: TextStyle(fontSize: 12, color: Colors.grey.shade800)),
                       const SizedBox(height: 2),
                       Text(
                         formatMoney(_group!.currency, potAmount),
@@ -258,12 +265,12 @@ class _GroupDetailScreenState extends State<GroupDetailScreen> with SingleTicker
             Row(
               children: [
                 Text(
-                  'பொறுப்பாளர்: ${accountable?.name ?? "இல்லை"}',
+                  S.accountableLabel(accountable?.name),
                   style: const TextStyle(fontSize: 12),
                 ),
                 const Spacer(),
                 Text(
-                  'கடைசி நாள்: ${formatDate(round.dueDate)}',
+                  S.dueDate(formatDate(round.dueDate)),
                   style: const TextStyle(fontSize: 12),
                 ),
               ],
@@ -282,7 +289,7 @@ class _GroupDetailScreenState extends State<GroupDetailScreen> with SingleTicker
                   _loadData();
                 },
                 icon: const Icon(Icons.arrow_forward_rounded),
-                label: const Text('Collection குறி / விவரம் பார்'),
+                label: Text(S.viewRoundDetails),
               ),
             ),
           ],
@@ -298,15 +305,15 @@ class _GroupDetailScreenState extends State<GroupDetailScreen> with SingleTicker
       children: [
         Chip(
           avatar: const Icon(Icons.payments_outlined, size: 16),
-          label: Text('தவணை: ${formatMoney(group.currency, group.contributionAmount)}'),
+          label: Text(S.contributionChip(formatMoney(group.currency, group.contributionAmount))),
         ),
         Chip(
           avatar: const Icon(Icons.event_repeat_rounded, size: 16),
-          label: Text(Labels.periods[group.period] ?? group.period),
+          label: Text(S.period(group.period)),
         ),
         Chip(
           avatar: const Icon(Icons.percent_rounded, size: 16),
-          label: Text('வட்டி: ${group.interestRatePct}% (${group.interestMode == "late_fee" ? "Late fee" : "Recipient pays"})'),
+          label: Text(S.interestChip(group.interestRatePct, group.interestMode)),
         ),
       ],
     );
@@ -324,7 +331,7 @@ class _GroupDetailScreenState extends State<GroupDetailScreen> with SingleTicker
             child: Text('${member.payoutOrder}'),
           ),
           title: Text(member.name, style: const TextStyle(fontWeight: FontWeight.w600)),
-          subtitle: Text(member.phone ?? 'எண் இல்லை'),
+          subtitle: Text(member.phone ?? S.noPhone),
           trailing: const Icon(Icons.chevron_right),
           onTap: () {
             Navigator.push(
@@ -349,7 +356,7 @@ class _GroupDetailScreenState extends State<GroupDetailScreen> with SingleTicker
       itemBuilder: (context, index) {
         final round = _rounds[index];
         final recipient = _memberMap[round.recipientMemberId];
-        final statusLabel = Labels.roundStatuses[round.status] ?? round.status;
+        final statusLabel = S.roundStatus(round.status);
 
         Color badgeColor = Colors.blue.shade100;
         Color textColor = Colors.blue.shade900;
@@ -372,10 +379,10 @@ class _GroupDetailScreenState extends State<GroupDetailScreen> with SingleTicker
               ),
             ),
             title: Text(
-              'ரவுண்டு ${round.seqNo} — ${recipient?.name ?? "யாரும் இல்லை"}',
+              S.roundTitleItem(round.seqNo, recipient?.name ?? S.noRecipient),
               style: const TextStyle(fontWeight: FontWeight.w600),
             ),
-            subtitle: Text('தவணை நாள்: ${formatDate(round.dueDate)}'),
+            subtitle: Text(S.dueDateItem(formatDate(round.dueDate))),
             trailing: Container(
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
               decoration: BoxDecoration(
