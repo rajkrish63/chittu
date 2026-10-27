@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:share_plus/share_plus.dart';
-import '../../core/constants.dart';
+import '../../core/locale_controller.dart';
+import '../../core/strings.dart';
 import '../../core/utils.dart';
 import '../../data/models/chit_group.dart';
 import '../../data/models/ledger_txn.dart';
@@ -60,134 +61,131 @@ class _MemberLedgerScreenState extends State<MemberLedgerScreen> {
   Future<void> _shareStatement() async {
     if (_member == null || _group == null || _balance == null) return;
     final b = _balance!;
-    final netSign = b.net >= 0 ? '+' : '';
-    final statement = '''
-📄 *சீட்டு கணக்கு அறிக்கை (Statement)*
---------------------------------
-சீட்டு: ${_group!.name}
-உறுப்பினர்: ${_member!.name}
-போன்: ${_member!.phone ?? '-'}
-தேதி: ${formatDate(DateTime.now())}
-
-*கணக்கு சுருக்கம் (Summary):*
-• வசூல் செலுத்தியது: ${formatMoney(_group!.currency, b.contributed)}
-• சீட்டு எடுத்தது: ${formatMoney(_group!.currency, b.taken)}
-• வட்டி செலுத்தியது: ${formatMoney(_group!.currency, b.interestPaid)}
-• பங்கு பெற்றது: ${formatMoney(_group!.currency, b.dividends)}
-• நிலுவை (Arrears): ${formatMoney(_group!.currency, b.arrears)}
---------------------------------
-*நிகர நிலை (Net Position):* $netSign${formatMoney(_group!.currency, b.net)}
---------------------------------
-_Chit Notebook வழியாக பகிரப்பட்டது_
-''';
+    final statement = S.generateStatement(
+      chitName: _group!.name,
+      memberName: _member!.name,
+      phone: _member!.phone,
+      dateFormatted: formatDate(DateTime.now()),
+      currency: _group!.currency,
+      contributed: b.contributed,
+      taken: b.taken,
+      interestPaid: b.interestPaid,
+      dividends: b.dividends,
+      arrears: b.arrears,
+      net: b.net,
+      formatMoneyFn: formatMoney,
+    );
 
     await Share.share(statement, subject: '${_member!.name} - Statement');
   }
 
   @override
   Widget build(BuildContext context) {
-    if (_loading) {
-      return const Scaffold(body: Center(child: CircularProgressIndicator()));
-    }
+    return ListenableBuilder(
+      listenable: AppLocaleController.instance,
+      builder: (context, _) {
+        if (_loading) {
+          return const Scaffold(body: Center(child: CircularProgressIndicator()));
+        }
 
-    if (_member == null || _group == null || _balance == null) {
-      return Scaffold(
-        appBar: AppBar(title: const Text('கணக்கு விவரம்')),
-        body: const Center(child: Text('விவரங்கள் கிடைக்கவில்லை')),
-      );
-    }
+        if (_member == null || _group == null || _balance == null) {
+          return Scaffold(
+            appBar: AppBar(title: Text(S.accountDetails)),
+            body: Center(child: Text(S.detailsNotFound)),
+          );
+        }
 
-    final m = _member!;
-    final g = _group!;
-    final b = _balance!;
-    final isNetPositive = b.net >= 0;
+        final m = _member!;
+        final g = _group!;
+        final b = _balance!;
+        final isNetPositive = b.net >= 0;
 
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(m.name),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.share_outlined),
-            tooltip: 'அறிக்கையை பகிர்',
-            onPressed: _shareStatement,
-          ),
-        ],
-      ),
-      body: ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
-          // Net position card
-          Card(
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-            elevation: 2,
-            child: Padding(
-              padding: const EdgeInsets.all(20),
-              child: Column(
-                children: [
-                  Text(
-                    'நிகர நிலை (Net Position)',
-                    style: TextStyle(fontSize: 13, color: Colors.grey.shade700),
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    '${isNetPositive ? "+" : ""}${formatMoney(g.currency, b.net)}',
-                    style: TextStyle(
-                      fontSize: 32,
-                      fontWeight: FontWeight.bold,
-                      color: isNetPositive ? Colors.green.shade700 : Colors.red.shade700,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    isNetPositive
-                        ? '(பெற்ற தொகை அதிகம் / Net Gain)'
-                        : '(செலுத்த வேண்டிய தொகை / Net Due)',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: isNetPositive ? Colors.green.shade800 : Colors.red.shade800,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-          const SizedBox(height: 16),
-
-          // Balance breakdown grid
-          _buildBreakdownGrid(b, g.currency),
-          const SizedBox(height: 24),
-
-          // Transactions timeline
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              const Text(
-                'பரிவர்த்தனை வரலாறு (Timeline)',
-                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-              ),
-              Text(
-                '${_transactions.length} பதிவுகள்',
-                style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+        return Scaffold(
+          appBar: AppBar(
+            title: Text(m.name),
+            actions: [
+              IconButton(
+                icon: const Icon(Icons.share_outlined),
+                tooltip: S.shareStatementTooltip,
+                onPressed: _shareStatement,
               ),
             ],
           ),
-          const SizedBox(height: 8),
-
-          if (_transactions.isEmpty)
-            Padding(
-              padding: const EdgeInsets.all(32),
-              child: Center(
-                child: Text(
-                  'பரிவர்த்தனைகள் எதுவும் இல்லை',
-                  style: TextStyle(color: Colors.grey.shade500),
+          body: ListView(
+            padding: const EdgeInsets.all(16),
+            children: [
+              // Net position card
+              Card(
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                elevation: 2,
+                child: Padding(
+                  padding: const EdgeInsets.all(20),
+                  child: Column(
+                    children: [
+                      Text(
+                        S.netPosition,
+                        style: TextStyle(fontSize: 13, color: Colors.grey.shade700),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        '${isNetPositive ? "+" : ""}${formatMoney(g.currency, b.net)}',
+                        style: TextStyle(
+                          fontSize: 32,
+                          fontWeight: FontWeight.bold,
+                          color: isNetPositive ? Colors.green.shade700 : Colors.red.shade700,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        isNetPositive ? S.netGain : S.netDue,
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: isNetPositive ? Colors.green.shade800 : Colors.red.shade800,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
-            )
-          else
-            for (final txn in _transactions) _buildTxnRow(txn, g.currency),
-          const SizedBox(height: 32),
-        ],
-      ),
+              const SizedBox(height: 16),
+
+              // Balance breakdown grid
+              _buildBreakdownGrid(b, g.currency),
+              const SizedBox(height: 24),
+
+              // Transactions timeline
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    S.timelineTitle,
+                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                  ),
+                  Text(
+                    S.recordCount(_transactions.length),
+                    style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+
+              if (_transactions.isEmpty)
+                Padding(
+                  padding: const EdgeInsets.all(32),
+                  child: Center(
+                    child: Text(
+                      S.noTransactions,
+                      style: TextStyle(color: Colors.grey.shade500),
+                    ),
+                  ),
+                )
+              else
+                for (final txn in _transactions) _buildTxnRow(txn, g.currency),
+              const SizedBox(height: 32),
+            ],
+          ),
+        );
+      },
     );
   }
 
@@ -196,17 +194,17 @@ _Chit Notebook வழியாக பகிரப்பட்டது_
       children: [
         Row(
           children: [
-            Expanded(child: _buildMetricTile('வசூல் (Paid)', formatMoney(currency, b.contributed), Colors.blue)),
+            Expanded(child: _buildMetricTile(S.metricPaid, formatMoney(currency, b.contributed), Colors.blue)),
             const SizedBox(width: 8),
-            Expanded(child: _buildMetricTile('எடுத்தது (Taken)', formatMoney(currency, b.taken), Colors.green)),
+            Expanded(child: _buildMetricTile(S.metricTaken, formatMoney(currency, b.taken), Colors.green)),
           ],
         ),
         const SizedBox(height: 8),
         Row(
           children: [
-            Expanded(child: _buildMetricTile('வட்டி (Interest)', formatMoney(currency, b.interestPaid), Colors.orange)),
+            Expanded(child: _buildMetricTile(S.metricInterest, formatMoney(currency, b.interestPaid), Colors.orange)),
             const SizedBox(width: 8),
-            Expanded(child: _buildMetricTile('பங்கு (Dividend)', formatMoney(currency, b.dividends), Colors.purple)),
+            Expanded(child: _buildMetricTile(S.metricDividend, formatMoney(currency, b.dividends), Colors.purple)),
           ],
         ),
         if (b.arrears > 0) ...[
@@ -221,7 +219,7 @@ _Chit Notebook வழியாக பகிரப்பட்டது_
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                const Text('தற்போதைய பாக்கி (Arrears):', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.red)),
+                Text(S.currentArrears, style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.red)),
                 Text(
                   formatMoney(currency, b.arrears),
                   style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.red),
@@ -238,7 +236,7 @@ _Chit Notebook வழியாக பகிரப்பட்டது_
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.08),
+        color: color.withValues(alpha: 0.08),
         borderRadius: BorderRadius.circular(12),
       ),
       child: Column(
@@ -256,7 +254,7 @@ _Chit Notebook வழியாக பகிரப்பட்டது_
   }
 
   Widget _buildTxnRow(LedgerTxn txn, String currency) {
-    final typeTamil = Labels.txnTypes[txn.type] ?? txn.type;
+    final typeText = S.txnType(txn.type);
     IconData icon = Icons.receipt_long;
     Color iconColor = Colors.grey;
 
@@ -278,13 +276,13 @@ _Chit Notebook வழியாக பகிரப்பட்டது_
       margin: const EdgeInsets.only(bottom: 6),
       child: ListTile(
         leading: CircleAvatar(
-          backgroundColor: iconColor.withOpacity(0.12),
+          backgroundColor: iconColor.withValues(alpha: 0.12),
           child: Icon(icon, color: iconColor, size: 20),
         ),
         title: Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Text(typeTamil, style: const TextStyle(fontWeight: FontWeight.w600)),
+            Text(typeText, style: const TextStyle(fontWeight: FontWeight.w600)),
             Text(
               formatMoney(currency, txn.amount),
               style: const TextStyle(fontWeight: FontWeight.bold),
