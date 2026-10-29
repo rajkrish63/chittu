@@ -36,9 +36,25 @@ class S {
   static String get languageSubtitle => _ta ? 'பயன்பாட்டின் மொழியை தேர்வு செய்க' : 'Select app display language';
   static String get english => 'English';
   static String get tamil => 'தமிழ் (Tamil)';
+  static String get themeModeTitle => _ta ? 'தோற்றம் / தீம் (Theme)' : 'Theme Mode';
+  static String get themeModeSubtitle => _ta ? 'ஒளி, இருள் அல்லது கணினி முறை' : 'Light, Dark, or System default';
+  static String get themeSystem => _ta ? 'கணினி முறை (System)' : 'System Default';
+  static String get themeLight => _ta ? 'ஒளி முறை (Light)' : 'Light Mode';
+  static String get themeDark => _ta ? 'இருள் முறை (Dark)' : 'Dark Mode';
   static String get backupAndData => _ta ? 'காப்புநகல் & தரவு' : 'Backup & Data';
-  static String get exportBackup => _ta ? 'காப்புநகல் ஏற்றுமதி (JSON Backup)' : 'Export JSON Backup';
+  static String get exportBackup => _ta ? 'காப்புநகல் ஏற்றுமதி (Export Backup)' : 'Export JSON Backup';
   static String get exportBackupSubtitle => _ta ? 'எல்லா சீட்டு தரவுகளையும் பகிர் அல்லது சேமி' : 'Share or save all chit fund data';
+  static String get importBackup => _ta ? 'காப்புநகல் மீட்டெடுப்பு (Restore Backup)' : 'Restore JSON Backup';
+  static String get importBackupSubtitle => _ta ? 'முந்தைய JSON காப்புநகலை மீட்டெடு' : 'Restore all chit data from a JSON backup';
+  static String get importBackupDialogTitle => _ta ? 'JSON காப்புநகலை ஒட்டவும்' : 'Paste JSON Backup';
+  static String get importBackupHint => _ta ? 'ஏற்றுமதி செய்த JSON உரையை இங்கே ஒட்டவும்...' : 'Paste exported JSON backup content here...';
+  static String get restoreConfirmTitle => _ta ? 'காப்புநகல் மீட்டெடுக்கவா?' : 'Restore Backup?';
+  static String get restoreConfirmWarning => _ta
+      ? 'இது உங்கள் தற்போதைய தரவு அனைத்தையும் அழித்து காப்புநகல் தரவால் மாற்றும். தொடரவா?'
+      : 'This will replace all current data with the backup. Are you sure you want to proceed?';
+  static String get restoreSuccess => _ta ? 'தரவு வெற்றிகரமாக மீட்டெடுக்கப்பட்டது!' : 'Data restored successfully!';
+  static String get invalidBackup => _ta ? 'தவறான காப்புநகல் வடிவம்' : 'Invalid backup JSON format';
+  static String get restoreAction => _ta ? 'மீட்டெடு (Restore)' : 'Restore';
   static String get backupReady => _ta ? 'காப்புநகல் தயாராக உள்ளது!' : 'Backup export ready!';
   static String get aboutApp => _ta ? 'செயலியை பற்றி' : 'About App';
   static String get appVersion => _ta ? 'பதிப்பு 0.1.0 (Family & Friends ROSCA Tracker)' : 'Version 0.1.0 (Family & Friends ROSCA Tracker)';
@@ -51,14 +67,14 @@ class S {
   static String get chitNameHint => _ta ? 'எ.கா. குடும்ப சீட்டு 2026' : 'e.g. Family Chit 2026';
   static String get defaultChitName => _ta ? 'குடும்ப சீட்டு' : 'Family Chit';
   static String get nameRequired => _ta ? 'பெயர் தேவை' : 'Name is required';
-  static String get contributionLabel => _ta ? 'தவணை தொகை (Contribution ₹)' : 'Contribution Amount (₹)';
+  static String get contributionLabel => _ta ? 'தவணை தொகை (Installment ₹)' : 'Installment Amount (₹)';
   static String get validAmountRequired => _ta ? 'சரியான தொகை தேவை' : 'Valid amount required';
   static String get periodLabel => _ta ? 'கால இடைவெளி (Period)' : 'Period';
   static String get monthly => _ta ? 'மாதம் (Monthly)' : 'Monthly';
   static String get weekly => _ta ? 'வாரம் (Weekly)' : 'Weekly';
   static String startDateLabel(String date) => _ta ? 'தொடக்க நாள்: $date' : 'Start Date: $date';
   static String get dueDayLabel => _ta ? 'தவணை நாள்' : 'Due Day';
-  static String get interestModeSection => _ta ? '2. வட்டி முறை' : '2. Interest Mode';
+  static String get interestModeSection => _ta ? '2. வட்டி / தாமத முறை' : '2. Penalty & Payout Mode';
   static String get interestRateLabel => _ta ? 'வட்டி விகிதம் (Interest Rate %)' : 'Interest Rate (%)';
   static String get lateFeeTitle => _ta ? 'தாமத வட்டி (Late-fee)' : 'Late fee';
   static String get lateFeeSubtitle => _ta ? 'தாமதமாக கட்டுபவர் மட்டும் வட்டி செலுத்துவார்' : 'Only members who pay late pay interest';
@@ -85,6 +101,10 @@ class S {
   static String get groupDetailsNotFound => _ta ? 'சீட்டு விவரம் கிடைக்கவில்லை' : 'Chit details not found';
   static String get deleteChitPrompt => _ta ? 'சீட்டை நீக்க வேண்டுமா?' : 'Delete this chit?';
   static String get deleteChitWarning => _ta ? 'பரிவர்த்தனைகள் எதுவும் இல்லை என்றால் மட்டுமே நீக்க முடியும்.' : 'Can only be deleted if there are no recorded transactions.';
+  static String typeChitNameToConfirm(String name) => _ta
+      ? 'உறுதிப்படுத்த "$name" என்று கீழே தட்டச்சு செய்யவும்:'
+      : 'Type "$name" below to confirm deletion:';
+  static String get enterChitNameHint => _ta ? 'சீட்டு பெயரை தட்டச்சு செய்க' : 'Type chit name here';
   static String get chitDeleted => _ta ? 'சீட்டு நீக்கப்பட்டது' : 'Chit deleted';
   static String get cannotDelete => _ta ? 'நீக்க இயலவில்லை' : 'Cannot delete';
   static String get deleteChitTooltip => _ta ? 'சீட்டை நீக்கு' : 'Delete Chit';
@@ -96,7 +116,7 @@ class S {
   static String get potAmountLabel => _ta ? 'Pot தொகை:' : 'Pot Amount:';
   static String accountableLabel(String? name) => _ta ? 'பொறுப்பாளர்: ${name ?? "இல்லை"}' : 'Organizer: ${name ?? "None"}';
   static String get viewRoundDetails => _ta ? 'வசூல் குறி / விவரம் பார்' : 'View Collections / Details';
-  static String contributionChip(String amount) => _ta ? 'தவணை: $amount' : 'Contribution: $amount';
+  static String contributionChip(String amount) => _ta ? 'தவணை: $amount' : 'Installment: $amount';
   static String interestChip(double rate, String mode) => _ta
       ? 'வட்டி: $rate% (${mode == "late_fee" ? "Late fee" : "Recipient pays"})'
       : 'Interest: $rate% (${mode == "late_fee" ? "Late fee" : "Recipient pays"})';
@@ -112,12 +132,23 @@ class S {
   static String cancelCollectionContent(String memberName) => _ta
       ? '$memberName அவர்களின் தவணை பதிவை நீக்க வேண்டுமா?'
       : 'Remove contribution record for $memberName?';
-  static String get lateFeeDialogTitle => _ta ? 'தாமத வட்டி (Late Fee)' : 'Late Fee Confirmation';
+  static String get lateFeeDialogTitle => _ta ? 'தாமத கட்டண விவரம் (Late Fee Breakdown)' : 'Late Fee Breakdown';
   static String lateFeeDialogContent(String dueDate, String lateFee) => _ta
       ? 'தவணை தேதி முடிந்துவிட்டது ($dueDate).\n\n$lateFee தாமத வட்டி கணக்கிடப்படும்.\nதாமதக் கட்டணமாக குறிக்கவா?'
       : 'Due date has passed ($dueDate).\n\nLate fee of $lateFee applies.\nMark as late payment?';
   static String get onTimeNoFee => _ta ? 'வட்டி வேண்டாம் (On-time)' : 'On-time (No fee)';
   static String get markLate => _ta ? 'தாமதம் (Late)' : 'Mark Late';
+  static String get waiveLateFee => _ta ? 'வட்டி தள்ளுபடி (Waive Fee)' : 'Waive Late Fee';
+  static String get collectWithFee => _ta ? 'மொத்த தொகையை வசூலி' : 'Collect Total';
+  static String daysOverdueCount(int days) => _ta ? '$days நாட்கள் தாமதம்' : '$days days overdue';
+  static String get baseInstallmentLabel => _ta ? 'அடிப்படை தவணை:' : 'Base Installment:';
+  static String get latePenaltyLabel => _ta ? 'தாமதக் கட்டணம்:' : 'Late Penalty:';
+  static String get totalPayableLabel => _ta ? 'மொத்த தொகை:' : 'Total Payable:';
+  static String get statusCollecting => _ta ? 'வசூலாகிறது' : 'Collecting';
+  static String get statusPotReady => _ta ? 'Pot தயார்' : 'Pot Ready';
+  static String get statusDisbursed => _ta ? 'வழங்கப்பட்டது' : 'Disbursed';
+  static String get disbursePotButton => _ta ? 'Pot-ஐ வழங்கு (Disburse Pot)' : 'Disburse Pot';
+  static String get disburseEarlyButton => _ta ? 'முன்கூட்டியே வழங்கு (Disburse Early)' : 'Disburse Early';
   static String get noPhoneForMember => _ta ? 'இந்த உறுப்பினருக்கு போன் எண் இல்லை' : 'No phone number for this member';
   static String get allPaidNotice => _ta ? 'அனைவரும் செலுத்திவிட்டனர்!' : 'All members have paid!';
   static String unpaidCountNotice(int count) => _ta ? '$count நபர்கள் இன்னும் செலுத்தவில்லை' : '$count members have not paid yet';
@@ -128,10 +159,10 @@ class S {
   static String recipientInterestLabel(double rate) => _ta ? 'பிடித்தவர் வட்டி ($rate%):' : 'Recipient Interest ($rate%):';
   static String get dividendPerMemberLabel => _ta ? 'மற்றவர்களுக்கு பங்கு (Dividend/member):' : 'Dividend per member:';
   static String arrearsWarning(int count) => _ta
-      ? '$count நபர்கள் இன்னும் கட்டவில்லை. அவர்களுக்கு நிலுவை (Arrears) என்று பதிவாகும்.'
-      : '$count member(s) have not paid. Arrears will be recorded for them.';
+      ? '$count நபர்கள் இன்னும் கட்டவில்லை. Pot வழங்கப்பட்டாலும் அவர்கள் பணம் செலுத்தும் போது பதிவு செய்யலாம்.'
+      : '$count member(s) have not paid yet. You can still record their payments after disbursing.';
   static String get payoutSuccess => _ta ? 'Payout வெற்றிகரமாக பதிவு செய்யப்பட்டது!' : 'Payout recorded successfully!';
-  static String get confirmPayoutButton => _ta ? 'Payout செய் (Confirm & Close Round)' : 'Confirm Payout & Close Round';
+  static String get confirmPayoutButton => _ta ? 'Payout செய் (Confirm & Disburse)' : 'Confirm & Disburse Pot';
   static String get changeRecipientDialogTitle => _ta ? 'பணம் எடுப்பவரை மாற்றுதல்' : 'Change Pot Recipient';
   static String get newRecipientLabel => _ta ? 'புதிய நபர்' : 'New Recipient';
   static String get reasonLabel => _ta ? 'காரணம் (Reason - Mandatory)' : 'Reason (Mandatory)';
@@ -150,40 +181,41 @@ class S {
   static String get remindButton => _ta ? 'நினைவூட்டு' : 'Remind';
   static String get payoutButton => _ta ? 'Payout →' : 'Payout →';
 
-  // Member Ledger Screen
+  // Member Ledger Screen — Plain-Language Labels (No Jargon)
   static String get accountDetails => _ta ? 'கணக்கு விவரம்' : 'Account Details';
   static String get detailsNotFound => _ta ? 'விவரங்கள் கிடைக்கவில்லை' : 'Details not found';
   static String get shareStatementTooltip => _ta ? 'அறிக்கையை பகிர்' : 'Share Statement';
-  static String get netPosition => _ta ? 'நிகர நிலை (Net Position)' : 'Net Position';
-  static String get netGain => _ta ? '(பெற்ற தொகை அதிகம் / Net Gain)' : '(Net Gain / Received More)';
-  static String get netDue => _ta ? '(செலுத்த வேண்டிய தொகை / Net Due)' : '(Net Due / Owed)';
+  static String get paidSoFarLabel => _ta ? 'இதுவரை செலுத்தியது' : 'Paid so far';
+  static String get receivedSoFarLabel => _ta ? 'இதுவரை பெற்றது' : 'Received so far';
+  static String get stillToReceiveLabel => _ta ? 'பெற வேண்டியது' : 'Still to receive';
+  static String get stillToPayLabel => _ta ? 'செலுத்த வேண்டிய பாக்கி' : 'Still to pay';
+  static String get prizedStatusBadge => _ta ? 'சீட்டு எடுத்தவர்' : 'Prized (Winner)';
+  static String get unprizedStatusBadge => _ta ? 'சீட்டு எடுக்காதவர்' : 'Waiting for Payout';
+  static String get postPrizeOutstandingLabel => _ta ? 'எடுத்த பிறகு கட்ட வேண்டிய பாக்கி' : 'Post-prize commitment';
+  static String get guarantorNoteLabel => _ta ? 'ஜாமீன் குறிப்பு' : 'Guarantor / Security Note';
+  static String get arrearsLabel => _ta ? 'தாமத பாக்கி (Arrears)' : 'Arrears';
   static String get timelineTitle => _ta ? 'பரிவர்த்தனை வரலாறு (Timeline)' : 'Transaction Timeline';
   static String recordCount(int count) => _ta ? '$count பதிவுகள்' : '$count records';
   static String get noTransactions => _ta ? 'பரிவர்த்தனைகள் எதுவும் இல்லை' : 'No transactions recorded yet';
-  static String get metricPaid => _ta ? 'வசூல் (Paid)' : 'Paid';
-  static String get metricTaken => _ta ? 'எடுத்தது (Taken)' : 'Taken';
-  static String get metricInterest => _ta ? 'வட்டி (Interest)' : 'Interest';
-  static String get metricDividend => _ta ? 'பங்கு (Dividend)' : 'Dividend';
-  static String get currentArrears => _ta ? 'தற்போதைய பாக்கி (Arrears):' : 'Current Arrears:';
 
   // Transaction types localized
   static String txnType(String type) {
     if (_ta) {
       switch (type) {
-        case 'contribution': return 'தவணை செலுத்தியது (Contribution)';
-        case 'payout': return 'சீட்டு எடுத்தது (Payout)';
-        case 'interest': return 'வட்டி செலுத்தியது (Interest)';
-        case 'penalty': return 'தாமதக் கட்டணம் (Late fee)';
-        case 'dividend': return 'பங்கு தொகை (Dividend)';
+        case 'contribution': return 'தவணை செலுத்தியது';
+        case 'payout': return 'சீட்டு எடுத்தது';
+        case 'interest': return 'வட்டி / தாமதக் கட்டணம்';
+        case 'dividend': return 'பங்கு தொகை';
+        case 'commission': return 'அமைப்பாளர் கமிஷன்';
         default: return type;
       }
     } else {
       switch (type) {
         case 'contribution': return 'Contribution';
         case 'payout': return 'Pot Payout';
-        case 'interest': return 'Interest Paid';
-        case 'penalty': return 'Late Fee';
+        case 'interest': return 'Interest / Late Fee';
         case 'dividend': return 'Dividend Earned';
+        case 'commission': return 'Foreman Commission';
         default: return type;
       }
     }
@@ -193,16 +225,16 @@ class S {
   static String roundStatus(String status) {
     if (_ta) {
       switch (status) {
-        case 'open': return 'திறந்துள்ளது';
-        case 'collected': return 'வசூலானது';
-        case 'paid_out': return 'முடிந்தது';
+        case 'open': return 'வசூலாகிறது';
+        case 'collected': return 'Pot தயார்';
+        case 'paid_out': return 'வழங்கப்பட்டது';
         default: return status;
       }
     } else {
       switch (status) {
-        case 'open': return 'Open';
-        case 'collected': return 'Collected';
-        case 'paid_out': return 'Paid Out';
+        case 'open': return 'Collecting';
+        case 'collected': return 'Pot Ready';
+        case 'paid_out': return 'Disbursed';
         default: return status;
       }
     }
@@ -217,39 +249,36 @@ class S {
     }
   }
 
-  // Statement text builder
+  // Plain-Language Statement Text Builder
   static String generateStatement({
     required String chitName,
     required String memberName,
     required String? phone,
     required String dateFormatted,
     required String currency,
-    required double contributed,
-    required double taken,
-    required double interestPaid,
-    required double dividends,
-    required double arrears,
-    required double net,
-    required String Function(String currency, double amount) formatMoneyFn,
+    required String paidSoFarFormatted,
+    required String receivedSoFarFormatted,
+    required String arrearsFormatted,
+    required String balanceFormatted,
+    required bool isReceivedMore,
+    required bool isPrized,
   }) {
-    final netSign = net >= 0 ? '+' : '';
     if (_ta) {
       return '''
-📄 *சீட்டு கணக்கு அறிக்கை (Statement)*
+📄 *சீட்டு கணக்கு விவரம்*
 --------------------------------
 சீட்டு: $chitName
 உறுப்பினர்: $memberName
 போன்: ${phone ?? '-'}
 தேதி: $dateFormatted
+நிலை: ${isPrized ? 'சீட்டு எடுத்தவர்' : 'இன்னும் எடுக்கவில்லை'}
 
-*கணக்கு சுருக்கம் (Summary):*
-• வசூல் செலுத்தியது: ${formatMoneyFn(currency, contributed)}
-• சீட்டு எடுத்தது: ${formatMoneyFn(currency, taken)}
-• வட்டி செலுத்தியது: ${formatMoneyFn(currency, interestPaid)}
-• பங்கு பெற்றது: ${formatMoneyFn(currency, dividends)}
-• நிலுவை (Arrears): ${formatMoneyFn(currency, arrears)}
+*கணக்கு சுருக்கம்:*
+• இதுவரை செலுத்தியது: $paidSoFarFormatted
+• இதுவரை பெற்றது: $receivedSoFarFormatted
+• தாமத பாக்கி: $arrearsFormatted
 --------------------------------
-*நிகர நிலை (Net Position):* $netSign${formatMoneyFn(currency, net)}
+• ${isReceivedMore ? "செலுத்தியதை விட பெற்றது அதிகம்" : "பெற்றதை விட செலுத்தியது அதிகம்"}: $balanceFormatted
 --------------------------------
 _Chit Notebook வழியாக பகிரப்பட்டது_
 ''';
@@ -261,15 +290,14 @@ Chit: $chitName
 Member: $memberName
 Phone: ${phone ?? '-'}
 Date: $dateFormatted
+Status: ${isPrized ? 'Prized (Winner)' : 'Waiting for Payout'}
 
 *Account Summary:*
-• Total Contributed: ${formatMoneyFn(currency, contributed)}
-• Total Pot Received: ${formatMoneyFn(currency, taken)}
-• Interest Paid: ${formatMoneyFn(currency, interestPaid)}
-• Dividend Received: ${formatMoneyFn(currency, dividends)}
-• Pending Arrears: ${formatMoneyFn(currency, arrears)}
+• Paid so far: $paidSoFarFormatted
+• Received so far: $receivedSoFarFormatted
+• Pending Arrears: $arrearsFormatted
 --------------------------------
-*Net Position:* $netSign${formatMoneyFn(currency, net)}
+• ${isReceivedMore ? "Received more than paid" : "Paid more than received"}: $balanceFormatted
 --------------------------------
 _Shared via Chit Notebook_
 ''';

@@ -1,14 +1,16 @@
 import 'package:flutter/material.dart';
 import '../../core/locale_controller.dart';
+import '../../core/money/money.dart';
 import '../../core/strings.dart';
 import '../../core/utils.dart';
-import '../../data/database/database_helper.dart';
 import '../../data/models/chit_group.dart';
 import '../../data/models/chit_round.dart';
-import '../../data/models/member.dart';
+import '../../data/models/membership.dart';
 import '../../data/repositories/group_repository.dart';
-import '../../data/repositories/member_repository.dart';
+import '../../data/repositories/ledger_repository.dart';
 import '../../data/repositories/round_repository.dart';
+import '../../domain/models/enums.dart';
+import '../../domain/services/late_fee_calculator.dart';
 
 class RoundDetailScreen extends StatefulWidget {
   const RoundDetailScreen({super.key, required this.roundId});
@@ -21,14 +23,14 @@ class RoundDetailScreen extends StatefulWidget {
 class _RoundDetailScreenState extends State<RoundDetailScreen> {
   final RoundRepository _roundRepo = RoundRepository();
   final GroupRepository _groupRepo = GroupRepository();
-  final MemberRepository _memberRepo = MemberRepository();
+  final LedgerRepository _ledgerRepo = LedgerRepository();
 
   bool _loading = true;
   ChitRound? _round;
   ChitGroup? _group;
-  List<Member> _members = [];
-  final Set<int> _paidMemberIds = {};
-  final Map<int, Member> _memberMap = {};
+  List<Membership> _memberships = [];
+  final Set<int> _paidMembershipIds = {};
+  final Map<int, Membership> _membershipMap = {};
 
   @override
   void initState() {
@@ -45,18 +47,11 @@ class _RoundDetailScreenState extends State<RoundDetailScreen> {
     }
 
     final group = await _groupRepo.getById(round.groupId);
-    final members = await _memberRepo.getForGroup(round.groupId);
+    final memberships = await _groupRepo.getMemberships(round.groupId);
+    final paidIds = await _ledgerRepo.getPaidMembershipIdsForRound(round.id!);
 
-    final db = await DatabaseHelper.instance.database;
-    final txns = await db.query(
-      'transactions',
-      where: 'round_id = ? AND type = ?',
-      whereArgs: [round.id, 'contribution'],
-    );
-    final paid = txns.map((t) => t['member_id'] as int).toSet();
-
-    final map = <int, Member>{};
-    for (final m in members) {
+    final map = <int, Membership>{};
+    for (final m in memberships) {
       if (m.id != null) map[m.id!] = m;
     }
 
@@ -64,34 +59,36 @@ class _RoundDetailScreenState extends State<RoundDetailScreen> {
       setState(() {
         _round = round;
         _group = group;
-        _members = members;
-        _paidMemberIds.clear();
-        _paidMemberIds.addAll(paid);
-        _memberMap.clear();
-        _memberMap.addAll(map);
+        _memberships = memberships;
+        _paidMembershipIds.clear();
+        _paidMembershipIds.addAll(paidIds);
+        _membershipMap.clear();
+        _membershipMap.addAll(map);
         _loading = false;
       });
     }
   }
 
-  Future<void> _togglePaid(Member member) async {
-    if (_round == null || _group == null || member.id == null) return;
-    if (_round!.status == 'paid_out') {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(S.cannotModifyPaidOut)),
-      );
-      return;
-    }
+  Future<void> _togglePaid(Membership membership) async {
+    if (_round == null || _group == null || membership.id == null) return;
 
-    final isPaid = _paidMemberIds.contains(member.id);
+    final isPaid = _paidMembershipIds.contains(membership.id);
+    final contactName = membership.contact?.name ?? 'Member';
 
     if (isPaid) {
-      // Unmark confirmation
+      if (_round!.isPaidOut) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(S.cannotModifyPaidOut)),
+        );
+        return;
+      }
+
+      // Reversal confirmation
       final confirm = await showDialog<bool>(
         context: context,
         builder: (ctx) => AlertDialog(
           title: Text(S.cancelCollectionPrompt),
-          content: Text(S.cancelCollectionContent(member.name)),
+          content: Text(S.cancelCollectionContent(contactName)),
           actions: [
             TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(S.cancel)),
             FilledButton(
@@ -103,106 +100,166 @@ class _RoundDetailScreenState extends State<RoundDetailScreen> {
         ),
       );
       if (confirm == true) {
-        await _roundRepo.unmarkContribution(_round!.id!, member.id!);
+        await _roundRepo.unmarkContribution(_round!.id!, membership.id!);
         _loadData();
       }
     } else {
-      // Check if late (only after the due date calendar day has passed)
-      final now = DateTime.now();
-      final today = DateTime(now.year, now.month, now.day);
-      final dueCalendarDay = DateTime(_round!.dueDate.year, _round!.dueDate.month, _round!.dueDate.day);
-      bool isLate = today.isAfter(dueCalendarDay);
-      if (isLate && _group!.interestMode == 'late_fee' && _group!.interestRatePct > 0) {
-        final lateFee = _group!.contributionAmount * _group!.interestRatePct / 100;
-        final lateConfirm = await showDialog<bool>(
+      // Pending contribution: check if overdue with dynamic late fee breakdown
+      final lateCalc = LateFeeCalculator.compute(
+        installmentPaise: _group!.installmentPaise,
+        rateBps: _group!.rateBps,
+        dueDate: _round!.dueDate,
+        graceDays: _group!.graceDays,
+      );
+
+      bool isLate = false;
+      int? lateFeePaiseToApply;
+
+      if (lateCalc.isOverdue &&
+          _group!.penaltyMode == PenaltyMode.lateFee &&
+          lateCalc.lateFee.isPositive) {
+        final choice = await showDialog<String>(
           context: context,
           builder: (ctx) => AlertDialog(
             title: Text(S.lateFeeDialogTitle),
-            content: Text(S.lateFeeDialogContent(
-              formatDate(_round!.dueDate),
-              formatMoney(_group!.currency, lateFee),
-            )),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: Colors.amber.shade50,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Colors.amber.shade300),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.alarm_on, color: Colors.amber, size: 18),
+                      const SizedBox(width: 6),
+                      Text(
+                        S.daysOverdueCount(lateCalc.daysOverdue),
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          color: Colors.amber.shade900,
+                          fontSize: 13,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(S.baseInstallmentLabel),
+                    Text(lateCalc.baseInstallment.format()),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(S.latePenaltyLabel),
+                    Text(
+                      '+${lateCalc.lateFee.format()}',
+                      style: TextStyle(color: Colors.red.shade700, fontWeight: FontWeight.w600),
+                    ),
+                  ],
+                ),
+                const Divider(height: 20),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(S.totalPayableLabel,
+                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+                    Text(
+                      lateCalc.totalDue.format(),
+                      style: const TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 16,
+                        color: Colors.green,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
             actions: [
               TextButton(
-                onPressed: () => Navigator.pop(ctx, false),
-                child: Text(S.onTimeNoFee),
+                onPressed: () => Navigator.pop(ctx, 'cancel'),
+                child: Text(S.cancel),
+              ),
+              OutlinedButton(
+                onPressed: () => Navigator.pop(ctx, 'waive'),
+                child: Text(S.waiveLateFee),
               ),
               FilledButton(
-                onPressed: () => Navigator.pop(ctx, true),
-                child: Text(S.markLate),
+                onPressed: () => Navigator.pop(ctx, 'fee'),
+                child: Text(S.collectWithFee),
               ),
             ],
           ),
         );
-        if (lateConfirm != null) {
-          isLate = lateConfirm;
+
+        if (choice == null || choice == 'cancel') return;
+        if (choice == 'fee') {
+          isLate = true;
+          lateFeePaiseToApply = lateCalc.lateFee.inPaise;
+        } else {
+          isLate = false;
         }
       }
 
       await _roundRepo.markContribution(
         round: _round!,
         group: _group!,
-        memberId: member.id!,
+        membershipId: membership.id!,
         isLate: isLate,
+        lateFeePaise: lateFeePaiseToApply,
       );
       _loadData();
     }
   }
 
-  Future<void> _sendWhatsAppReminder(Member member) async {
+  Future<void> _sendWhatsAppReminder(Membership membership) async {
     if (_round == null || _group == null) return;
-    if (member.phone == null || member.phone!.trim().isEmpty) {
+    final contact = membership.contact;
+    if (contact?.phone == null || contact!.phone!.trim().isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(S.noPhoneForMember)),
       );
       return;
     }
 
-    final msg = reminderMessage(
-      memberName: member.name,
-      roundNo: _round!.seqNo,
-      amount: _group!.contributionAmount,
-      currency: _group!.currency,
+    final lateCalc = LateFeeCalculator.compute(
+      installmentPaise: _group!.installmentPaise,
+      rateBps: _group!.rateBps,
+      dueDate: _round!.dueDate,
+      graceDays: _group!.graceDays,
     );
-    await openWhatsApp(member.phone!, msg);
-  }
 
-  Future<void> _remindAllPending() async {
-    if (_round == null || _group == null) return;
-    final pending = _members.where((m) => !_paidMemberIds.contains(m.id)).toList();
-    if (pending.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(S.allPaidNotice)),
-      );
-      return;
-    }
-
-    // Remind first pending member or show count
-    final first = pending.first;
-    if (first.phone != null && first.phone!.isNotEmpty) {
-      await _sendWhatsAppReminder(first);
+    String message;
+    if (lateCalc.isOverdue && lateCalc.lateFee.isPositive) {
+      message = '${contact.name}, payment for Round ${_round!.seqNo} is overdue by ${lateCalc.daysOverdue} days.\n'
+          '• Installment: ${lateCalc.baseInstallment.format()}\n'
+          '• Late Fee: ${lateCalc.lateFee.format()}\n'
+          '• Total Due: ${lateCalc.totalDue.format()}\n'
+          'Please pay at your earliest convenience 🙏';
     } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(S.unpaidCountNotice(pending.length))),
-      );
+      message = '${contact.name}, payment for Round ${_round!.seqNo} (${_group!.installment.format()}) is pending (due: ${formatDate(_round!.dueDate)}). '
+          'Please pay at your earliest convenience 🙏';
     }
+
+    await openWhatsApp(contact.phone!, message);
   }
 
   Future<void> _showPayoutSheet() async {
     if (_round == null || _group == null) return;
-    final recipient = _memberMap[_round!.recipientMemberId];
-    final pot = _group!.contributionAmount * _members.length;
-    final unpaidCount = _members.length - _paidMemberIds.length;
-
-    final calc = _group!.interestMode == 'recipient_pays'
-        ? calculateRecipientPays(
-            pot: pot,
-            interestRatePct: _group!.interestRatePct,
-            totalMembers: _members.length,
-          )
-        : (interest: 0.0, dividend: 0.0);
-    final interest = calc.interest;
-    final dividend = calc.dividend;
+    final recipient = _membershipMap[_round!.recipientMembershipId];
+    final pot = Money.fromPaise(_group!.installmentPaise * _memberships.length);
+    final unpaidCount = _memberships.length - _paidMembershipIds.length;
 
     showModalBottomSheet(
       context: context,
@@ -232,7 +289,10 @@ class _RoundDetailScreenState extends State<RoundDetailScreen> {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Text(S.payoutRecipient),
-                Text(recipient?.name ?? S.unknownRecipient, style: const TextStyle(fontWeight: FontWeight.bold)),
+                Text(
+                  recipient?.contact?.name ?? S.unknownRecipient,
+                  style: const TextStyle(fontWeight: FontWeight.bold),
+                ),
               ],
             ),
             const SizedBox(height: 8),
@@ -241,29 +301,15 @@ class _RoundDetailScreenState extends State<RoundDetailScreen> {
               children: [
                 Text(S.totalPotAmount),
                 Text(
-                  formatMoney(_group!.currency, pot),
-                  style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.green),
+                  pot.format(),
+                  style: const TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.green,
+                  ),
                 ),
               ],
             ),
-            if (_group!.interestMode == 'recipient_pays' && _group!.interestRatePct > 0) ...[
-              const SizedBox(height: 8),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(S.recipientInterestLabel(_group!.interestRatePct)),
-                  Text(formatMoney(_group!.currency, interest), style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.red)),
-                ],
-              ),
-              const SizedBox(height: 4),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(S.dividendPerMemberLabel),
-                  Text(formatMoney(_group!.currency, dividend), style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.blue)),
-                ],
-              ),
-            ],
             if (unpaidCount > 0) ...[
               const SizedBox(height: 12),
               Container(
@@ -292,8 +338,18 @@ class _RoundDetailScreenState extends State<RoundDetailScreen> {
               width: double.infinity,
               child: FilledButton(
                 onPressed: () async {
+                  if (_round!.recipientMembershipId == null) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Please assign a recipient before payout')),
+                    );
+                    return;
+                  }
                   Navigator.pop(ctx);
-                  await _roundRepo.runPayout(round: _round!, group: _group!);
+                  await _roundRepo.runPayout(
+                    round: _round!,
+                    group: _group!,
+                    recipientMembershipId: _round!.recipientMembershipId!,
+                  );
                   if (mounted) {
                     ScaffoldMessenger.of(context).showSnackBar(
                       SnackBar(content: Text(S.payoutSuccess)),
@@ -315,47 +371,34 @@ class _RoundDetailScreenState extends State<RoundDetailScreen> {
   }
 
   Future<void> _changeRecipient() async {
-    if (_round == null || _round!.status == 'paid_out') return;
+    if (_round == null || _round!.isPaidOut) return;
 
-    int? selectedId = _round!.recipientMemberId;
-    final reasonController = TextEditingController();
+    int? selectedId = _round!.recipientMembershipId;
 
     final result = await showDialog<bool>(
       context: context,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setDialogState) => AlertDialog(
           title: Text(S.changeRecipientDialogTitle),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              DropdownButtonFormField<int>(
-                initialValue: selectedId,
-                decoration: InputDecoration(labelText: S.newRecipientLabel, border: const OutlineInputBorder()),
-                items: [
-                  for (final m in _members)
-                    DropdownMenuItem(value: m.id, child: Text(m.name)),
-                ],
-                onChanged: (v) => setDialogState(() => selectedId = v),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: reasonController,
-                decoration: InputDecoration(
-                  labelText: S.reasonLabel,
-                  hintText: S.reasonHint,
-                  border: const OutlineInputBorder(),
+          content: DropdownButtonFormField<int>(
+            initialValue: selectedId,
+            decoration: InputDecoration(
+              labelText: S.newRecipientLabel,
+              border: const OutlineInputBorder(),
+            ),
+            items: [
+              for (final m in _memberships)
+                DropdownMenuItem(
+                  value: m.id,
+                  child: Text('${m.payoutOrder}. ${m.contact?.name ?? "Member"}'),
                 ),
-              ),
             ],
+            onChanged: (v) => setDialogState(() => selectedId = v),
           ),
           actions: [
             TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(S.cancel)),
             FilledButton(
-              onPressed: () {
-                if (selectedId != null && reasonController.text.trim().isNotEmpty) {
-                  Navigator.pop(ctx, true);
-                }
-              },
+              onPressed: () => Navigator.pop(ctx, true),
               child: Text(S.ok),
             ),
           ],
@@ -364,11 +407,7 @@ class _RoundDetailScreenState extends State<RoundDetailScreen> {
     );
 
     if (result == true && selectedId != null) {
-      await _roundRepo.setRecipient(
-        widget.roundId,
-        selectedId!,
-        reason: reasonController.text.trim(),
-      );
+      await _roundRepo.setRecipient(widget.roundId, selectedId!);
       _loadData();
     }
   }
@@ -391,12 +430,10 @@ class _RoundDetailScreenState extends State<RoundDetailScreen> {
 
         final round = _round!;
         final group = _group!;
-        final recipient = _memberMap[round.recipientMemberId];
-        final accountable = _memberMap[round.accountableMemberId];
-        final paidCount = _paidMemberIds.length;
-        final totalCount = _members.length;
+        final recipient = _membershipMap[round.recipientMembershipId];
+        final paidCount = _paidMembershipIds.length;
+        final totalCount = _memberships.length;
         final pendingCount = totalCount - paidCount;
-        final isPaidOut = round.status == 'paid_out';
 
         return Scaffold(
           appBar: AppBar(
@@ -405,19 +442,19 @@ class _RoundDetailScreenState extends State<RoundDetailScreen> {
               IconButton(
                 icon: const Icon(Icons.swap_horiz_rounded),
                 tooltip: S.changeRecipientTooltip,
-                onPressed: isPaidOut ? null : _changeRecipient,
+                onPressed: round.isPaidOut ? null : _changeRecipient,
               ),
             ],
           ),
-          bottomNavigationBar: _buildStickyBottomBar(pendingCount, isPaidOut),
+          bottomNavigationBar: _buildStickyBottomBar(pendingCount, round.isPaidOut),
           body: ListView(
             padding: const EdgeInsets.all(16),
             children: [
               // Header Card
-              _buildHeaderCard(round, group, recipient, accountable, paidCount, totalCount),
+              _buildHeaderCard(round, group, recipient, paidCount, totalCount),
               const SizedBox(height: 16),
 
-              // Member collection list header
+              // Member Collections Header
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
@@ -437,8 +474,9 @@ class _RoundDetailScreenState extends State<RoundDetailScreen> {
               ),
               const SizedBox(height: 8),
 
-              // Member Rows
-              for (final member in _members) _buildMemberRow(member, isPaidOut),
+              // Membership Collection Checklist
+              for (final membership in _memberships)
+                _buildMemberRow(membership, round.isPaidOut),
               const SizedBox(height: 80),
             ],
           ),
@@ -450,12 +488,36 @@ class _RoundDetailScreenState extends State<RoundDetailScreen> {
   Widget _buildHeaderCard(
     ChitRound round,
     ChitGroup group,
-    Member? recipient,
-    Member? accountable,
+    Membership? recipient,
     int paidCount,
     int totalCount,
   ) {
-    final statusLabel = S.roundStatus(round.status);
+    String statusLabel;
+    Color statusBg;
+    Color statusTextColor;
+
+    if (round.isPaidOut) {
+      if (paidCount < totalCount) {
+        statusLabel = '${S.statusDisbursed} (${totalCount - paidCount} pending)';
+        statusBg = Colors.amber.shade100;
+        statusTextColor = Colors.amber.shade900;
+      } else {
+        statusLabel = S.statusDisbursed;
+        statusBg = Colors.green.shade100;
+        statusTextColor = Colors.green.shade900;
+      }
+    } else if (round.isCollected) {
+      statusLabel = S.statusPotReady;
+      statusBg = Colors.orange.shade100;
+      statusTextColor = Colors.orange.shade900;
+    } else {
+      statusLabel = '${S.statusCollecting} ($paidCount/$totalCount)';
+      statusBg = Colors.blue.shade100;
+      statusTextColor = Colors.blue.shade900;
+    }
+
+    final pot = Money.fromPaise(group.installmentPaise * totalCount);
+
     return Card(
       elevation: 2,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
@@ -475,7 +537,7 @@ class _RoundDetailScreenState extends State<RoundDetailScreen> {
                     ),
                     const SizedBox(height: 2),
                     Text(
-                      recipient?.name ?? S.noRecipient,
+                      recipient?.contact?.name ?? S.noRecipient,
                       style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                     ),
                   ],
@@ -483,11 +545,7 @@ class _RoundDetailScreenState extends State<RoundDetailScreen> {
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                   decoration: BoxDecoration(
-                    color: round.status == 'paid_out'
-                        ? Colors.green.shade100
-                        : round.status == 'collected'
-                            ? Colors.orange.shade100
-                            : Colors.blue.shade100,
+                    color: statusBg,
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: Text(
@@ -495,11 +553,7 @@ class _RoundDetailScreenState extends State<RoundDetailScreen> {
                     style: TextStyle(
                       fontSize: 12,
                       fontWeight: FontWeight.bold,
-                      color: round.status == 'paid_out'
-                          ? Colors.green.shade900
-                          : round.status == 'collected'
-                              ? Colors.orange.shade900
-                              : Colors.blue.shade900,
+                      color: statusTextColor,
                     ),
                   ),
                 ),
@@ -509,7 +563,10 @@ class _RoundDetailScreenState extends State<RoundDetailScreen> {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text(S.contributionChip(formatMoney(group.currency, group.contributionAmount)), style: const TextStyle(fontSize: 13)),
+                Text(
+                  S.contributionChip(group.installment.format()),
+                  style: const TextStyle(fontSize: 13),
+                ),
                 Text(S.dueDate(formatDate(round.dueDate)), style: const TextStyle(fontSize: 13)),
               ],
             ),
@@ -517,8 +574,10 @@ class _RoundDetailScreenState extends State<RoundDetailScreen> {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text(S.accountableLabel(accountable?.name), style: const TextStyle(fontSize: 13)),
-                Text('Pot: ${formatMoney(group.currency, group.contributionAmount * totalCount)}', style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
+                Text(
+                  'Pot: ${pot.format()}',
+                  style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
+                ),
               ],
             ),
             const SizedBox(height: 12),
@@ -537,8 +596,32 @@ class _RoundDetailScreenState extends State<RoundDetailScreen> {
     );
   }
 
-  Widget _buildMemberRow(Member member, bool isPaidOut) {
-    final isPaid = _paidMemberIds.contains(member.id);
+  Widget _buildMemberRow(Membership membership, bool isPaidOut) {
+    final isPaid = _paidMembershipIds.contains(membership.id);
+    final contact = membership.contact;
+
+    final lateCalc = isPaid
+        ? null
+        : LateFeeCalculator.compute(
+            installmentPaise: _group!.installmentPaise,
+            rateBps: _group!.rateBps,
+            dueDate: _round!.dueDate,
+            graceDays: _group!.graceDays,
+          );
+
+    String subtitleText;
+    Color subtitleColor;
+
+    if (isPaid) {
+      subtitleText = S.paidStatus;
+      subtitleColor = Colors.green.shade700;
+    } else if (lateCalc != null && lateCalc.isOverdue) {
+      subtitleText = '${contact?.phone ?? S.pendingStatus} • ${lateCalc.daysOverdue}d overdue';
+      subtitleColor = Colors.red.shade700;
+    } else {
+      subtitleText = contact?.phone ?? S.pendingStatus;
+      subtitleColor = Colors.grey.shade700;
+    }
 
     return Card(
       margin: const EdgeInsets.only(bottom: 8),
@@ -557,26 +640,28 @@ class _RoundDetailScreenState extends State<RoundDetailScreen> {
             color: isPaid ? Colors.green.shade800 : Colors.grey.shade700,
           ),
         ),
-        title: Text(member.name, style: const TextStyle(fontWeight: FontWeight.w600)),
+        title: Text(contact?.name ?? 'Member', style: const TextStyle(fontWeight: FontWeight.w600)),
         subtitle: Text(
-          isPaid ? S.paidStatus : (member.phone ?? S.pendingStatus),
+          subtitleText,
           style: TextStyle(
-            color: isPaid ? Colors.green.shade700 : Colors.red.shade700,
+            color: subtitleColor,
             fontSize: 12,
-            fontWeight: isPaid ? FontWeight.bold : FontWeight.normal,
+            fontWeight: isPaid || (lateCalc?.isOverdue ?? false)
+                ? FontWeight.bold
+                : FontWeight.normal,
           ),
         ),
         trailing: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            if (!isPaid && member.phone != null && member.phone!.isNotEmpty)
+            if (!isPaid && contact?.phone != null && contact!.phone!.isNotEmpty)
               IconButton(
                 icon: const Icon(Icons.send_rounded, color: Colors.green),
                 tooltip: 'WhatsApp Reminder',
-                onPressed: () => _sendWhatsAppReminder(member),
+                onPressed: () => _sendWhatsAppReminder(membership),
               ),
             FilledButton.tonal(
-              onPressed: isPaidOut ? null : () => _togglePaid(member),
+              onPressed: isPaid && isPaidOut ? null : () => _togglePaid(membership),
               style: FilledButton.styleFrom(
                 backgroundColor: isPaid ? Colors.green.shade100 : null,
                 foregroundColor: isPaid ? Colors.green.shade900 : null,
@@ -590,7 +675,7 @@ class _RoundDetailScreenState extends State<RoundDetailScreen> {
   }
 
   Widget _buildStickyBottomBar(int pendingCount, bool isPaidOut) {
-    final pendingAmount = (_group?.contributionAmount ?? 0) * pendingCount;
+    final pendingPaise = (_group?.installmentPaise ?? 0) * pendingCount;
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
@@ -622,26 +707,26 @@ class _RoundDetailScreenState extends State<RoundDetailScreen> {
                   ),
                   if (pendingCount > 0)
                     Text(
-                      formatMoney(_group?.currency ?? '₹', pendingAmount),
+                      Money.fromPaise(pendingPaise).format(),
                       style: const TextStyle(fontSize: 12, color: Colors.grey),
                     ),
                 ],
               ),
             ),
-            if (pendingCount > 0) ...[
-              OutlinedButton.icon(
-                onPressed: _remindAllPending,
-                icon: const Icon(Icons.chat_bubble_outline, size: 16),
-                label: Text(S.remindButton),
-              ),
-              const SizedBox(width: 8),
-            ],
             FilledButton(
               onPressed: isPaidOut ? null : _showPayoutSheet,
               style: FilledButton.styleFrom(
-                backgroundColor: isPaidOut ? Colors.grey : Colors.green.shade700,
+                backgroundColor: isPaidOut
+                    ? Colors.grey
+                    : pendingCount == 0
+                        ? Colors.green.shade700
+                        : Colors.orange.shade700,
               ),
-              child: Text(isPaidOut ? S.done : S.payoutButton),
+              child: Text(
+                isPaidOut
+                    ? (pendingCount == 0 ? S.done : S.statusDisbursed)
+                    : (pendingCount == 0 ? S.disbursePotButton : S.disburseEarlyButton),
+              ),
             ),
           ],
         ),

@@ -25,15 +25,87 @@ Future<void> openWhatsApp(String phone, String message) async {
   }
 }
 
-/// Reminder message
+/// Dynamic late-fee calculation data model
+class LateFeeCalculation {
+  final double baseAmount;
+  final int daysOverdue;
+  final double dailyRatePct;
+  final double lateFee;
+  final double totalDue;
+  final bool isOverdue;
+
+  const LateFeeCalculation({
+    required this.baseAmount,
+    required this.daysOverdue,
+    required this.dailyRatePct,
+    required this.lateFee,
+    required this.totalDue,
+    required this.isOverdue,
+  });
+
+  /// Factory computing late fee based on overdue calendar days:
+  /// daily rate = (monthlyRatePct / 100) / 30
+  /// fee = baseAmount * dailyRate * daysOverdue
+  factory LateFeeCalculation.compute({
+    required double baseAmount,
+    required DateTime dueDate,
+    required double monthlyRatePct,
+    int gracePeriodDays = 0,
+    DateTime? currentDate,
+  }) {
+    final now = currentDate ?? DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final due = DateTime(dueDate.year, dueDate.month, dueDate.day);
+
+    final diff = today.difference(due).inDays;
+    final overdueDays = diff > gracePeriodDays ? diff : 0;
+
+    if (overdueDays <= 0 || monthlyRatePct <= 0) {
+      return LateFeeCalculation(
+        baseAmount: baseAmount,
+        daysOverdue: 0,
+        dailyRatePct: 0,
+        lateFee: 0,
+        totalDue: baseAmount,
+        isOverdue: false,
+      );
+    }
+
+    final dailyRate = (monthlyRatePct / 100) / 30;
+    final fee = (baseAmount * dailyRate * overdueDays).roundToDouble();
+
+    return LateFeeCalculation(
+      baseAmount: baseAmount,
+      daysOverdue: overdueDays,
+      dailyRatePct: dailyRate * 100,
+      lateFee: fee,
+      totalDue: baseAmount + fee,
+      isOverdue: true,
+    );
+  }
+}
+
+/// Reminder message with optional overdue details
 String reminderMessage({
   required String memberName,
   required int roundNo,
   required double amount,
   required String currency,
-}) =>
-    '$memberName, payment for Round $roundNo (${formatMoney(currency, amount)}) is pending. '
-    'Please pay at your earliest convenience — pot is waiting 🙏';
+  DateTime? dueDate,
+  LateFeeCalculation? lateFeeCalc,
+}) {
+  if (lateFeeCalc != null && lateFeeCalc.isOverdue && lateFeeCalc.lateFee > 0) {
+    return '$memberName, payment for Round $roundNo is overdue by ${lateFeeCalc.daysOverdue} days.\n'
+        '• Installment: ${formatMoney(currency, amount)}\n'
+        '• Late Fee: ${formatMoney(currency, lateFeeCalc.lateFee)}\n'
+        '• Total Due: ${formatMoney(currency, lateFeeCalc.totalDue)}\n'
+        'Please pay at your earliest convenience — pot is waiting 🙏';
+  }
+
+  final dueStr = dueDate != null ? ' (due: ${formatDate(dueDate)})' : '';
+  return '$memberName, payment for Round $roundNo (${formatMoney(currency, amount)})$dueStr is pending. '
+      'Please pay at your earliest convenience — pot is waiting 🙏';
+}
 
 /// Monthly due date: clamp due_day to the month's length (e.g. 31 -> 28 in Feb).
 DateTime monthlyDueDate(DateTime start, int dueDay, int monthsAfter) {

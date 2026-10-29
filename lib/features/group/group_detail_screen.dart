@@ -1,12 +1,12 @@
 import 'package:flutter/material.dart';
 import '../../core/locale_controller.dart';
+import '../../core/money/money.dart';
 import '../../core/strings.dart';
 import '../../core/utils.dart';
 import '../../data/models/chit_group.dart';
 import '../../data/models/chit_round.dart';
-import '../../data/models/member.dart';
+import '../../data/models/membership.dart';
 import '../../data/repositories/group_repository.dart';
-import '../../data/repositories/member_repository.dart';
 import '../../data/repositories/round_repository.dart';
 import '../member/member_ledger_screen.dart';
 import '../round/round_detail_screen.dart';
@@ -22,14 +22,13 @@ class GroupDetailScreen extends StatefulWidget {
 class _GroupDetailScreenState extends State<GroupDetailScreen> with SingleTickerProviderStateMixin {
   final GroupRepository _groupRepo = GroupRepository();
   final RoundRepository _roundRepo = RoundRepository();
-  final MemberRepository _memberRepo = MemberRepository();
 
   late TabController _tabController;
   bool _loading = true;
   ChitGroup? _group;
   List<ChitRound> _rounds = [];
-  List<Member> _members = [];
-  final Map<int, Member> _memberMap = {};
+  List<Membership> _memberships = [];
+  final Map<int, Membership> _membershipMap = {};
 
   @override
   void initState() {
@@ -48,10 +47,10 @@ class _GroupDetailScreenState extends State<GroupDetailScreen> with SingleTicker
     setState(() => _loading = true);
     final group = await _groupRepo.getById(widget.groupId);
     final rounds = await _roundRepo.getForGroup(widget.groupId);
-    final members = await _memberRepo.getForGroup(widget.groupId);
+    final memberships = await _groupRepo.getMemberships(widget.groupId);
 
-    final map = <int, Member>{};
-    for (final m in members) {
+    final map = <int, Membership>{};
+    for (final m in memberships) {
       if (m.id != null) map[m.id!] = m;
     }
 
@@ -59,28 +58,58 @@ class _GroupDetailScreenState extends State<GroupDetailScreen> with SingleTicker
       setState(() {
         _group = group;
         _rounds = rounds;
-        _members = members;
-        _memberMap.clear();
-        _memberMap.addAll(map);
+        _memberships = memberships;
+        _membershipMap.clear();
+        _membershipMap.addAll(map);
         _loading = false;
       });
     }
   }
 
   Future<void> _handleDelete() async {
+    if (_group == null) return;
+    final groupName = _group!.name;
+    final textController = TextEditingController();
+
     final confirm = await showDialog<bool>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text(S.deleteChitPrompt),
-        content: Text(S.deleteChitWarning),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(S.cancel)),
-          FilledButton(
-            style: FilledButton.styleFrom(backgroundColor: Colors.red),
-            onPressed: () => Navigator.pop(ctx, true),
-            child: Text(S.delete),
-          ),
-        ],
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) {
+          final isMatch = textController.text.trim() == groupName.trim();
+          return AlertDialog(
+            title: Text(S.deleteChitPrompt),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(S.deleteChitWarning),
+                const SizedBox(height: 16),
+                Text(
+                  S.typeChitNameToConfirm(groupName),
+                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                ),
+                const SizedBox(height: 8),
+                TextField(
+                  controller: textController,
+                  autofocus: true,
+                  decoration: InputDecoration(
+                    hintText: S.enterChitNameHint,
+                    border: const OutlineInputBorder(),
+                  ),
+                  onChanged: (_) => setDialogState(() {}),
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(S.cancel)),
+              FilledButton(
+                style: FilledButton.styleFrom(backgroundColor: Colors.red),
+                onPressed: isMatch ? () => Navigator.pop(ctx, true) : null,
+                child: Text(S.delete),
+              ),
+            ],
+          );
+        },
       ),
     );
 
@@ -129,23 +158,37 @@ class _GroupDetailScreenState extends State<GroupDetailScreen> with SingleTicker
         final group = _group!;
         ChitRound? activeRound;
         for (final r in _rounds) {
-          if (r.status != 'paid_out') {
+          if (!r.isPaidOut) {
             activeRound = r;
             break;
           }
         }
         activeRound ??= _rounds.isNotEmpty ? _rounds.last : null;
 
-        final potAmount = group.contributionAmount * _members.length;
+        final pot = Money.fromPaise(group.installmentPaise * _memberships.length);
 
         return Scaffold(
           appBar: AppBar(
             title: Text(group.name, style: const TextStyle(fontWeight: FontWeight.bold)),
             actions: [
-              IconButton(
-                icon: const Icon(Icons.delete_outline, color: Colors.red),
-                tooltip: S.deleteChitTooltip,
-                onPressed: _handleDelete,
+              PopupMenuButton<String>(
+                icon: const Icon(Icons.more_vert),
+                tooltip: 'More options',
+                onSelected: (val) {
+                  if (val == 'delete') _handleDelete();
+                },
+                itemBuilder: (ctx) => [
+                  PopupMenuItem(
+                    value: 'delete',
+                    child: Row(
+                      children: [
+                        const Icon(Icons.delete_outline, color: Colors.red, size: 20),
+                        const SizedBox(width: 8),
+                        Text(S.deleteChitTooltip, style: const TextStyle(color: Colors.red)),
+                      ],
+                    ),
+                  ),
+                ],
               ),
             ],
           ),
@@ -157,11 +200,9 @@ class _GroupDetailScreenState extends State<GroupDetailScreen> with SingleTicker
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      // Active Round Card
-                      if (activeRound != null) _buildActiveRoundHero(activeRound, potAmount),
+                      if (activeRound != null) _buildActiveRoundHero(activeRound, pot),
                       const SizedBox(height: 16),
-                      // Group metadata chip row
-                      _buildMetadataChips(group, potAmount),
+                      _buildMetadataChips(group),
                     ],
                   ),
                 ),
@@ -172,7 +213,7 @@ class _GroupDetailScreenState extends State<GroupDetailScreen> with SingleTicker
                   TabBar(
                     controller: _tabController,
                     tabs: [
-                      Tab(text: S.membersTab(_members.length)),
+                      Tab(text: S.membersTab(_memberships.length)),
                       Tab(text: S.roundsTab(_rounds.length)),
                     ],
                   ),
@@ -192,10 +233,9 @@ class _GroupDetailScreenState extends State<GroupDetailScreen> with SingleTicker
     );
   }
 
-  Widget _buildActiveRoundHero(ChitRound round, double potAmount) {
-    final recipient = _memberMap[round.recipientMemberId];
-    final accountable = _memberMap[round.accountableMemberId];
-    final statusLabel = S.roundStatus(round.status);
+  Widget _buildActiveRoundHero(ChitRound round, Money pot) {
+    final recipient = _membershipMap[round.recipientMembershipId];
+    final statusLabel = S.roundStatus(round.status.value);
 
     return Card(
       color: Theme.of(context).colorScheme.primaryContainer,
@@ -224,7 +264,7 @@ class _GroupDetailScreenState extends State<GroupDetailScreen> with SingleTicker
                     style: TextStyle(
                       fontSize: 12,
                       fontWeight: FontWeight.bold,
-                      color: round.status == 'paid_out' ? Colors.green : Colors.blue.shade900,
+                      color: round.isPaidOut ? Colors.green : Colors.blue.shade900,
                     ),
                   ),
                 ),
@@ -237,10 +277,11 @@ class _GroupDetailScreenState extends State<GroupDetailScreen> with SingleTicker
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(S.recipientLabel, style: TextStyle(fontSize: 12, color: Colors.grey.shade800)),
+                      Text(S.recipientLabel,
+                          style: TextStyle(fontSize: 12, color: Colors.grey.shade800)),
                       const SizedBox(height: 2),
                       Text(
-                        recipient?.name ?? S.notAssigned,
+                        recipient?.contact?.name ?? S.notAssigned,
                         style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                       ),
                     ],
@@ -250,10 +291,11 @@ class _GroupDetailScreenState extends State<GroupDetailScreen> with SingleTicker
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.end,
                     children: [
-                      Text(S.potAmountLabel, style: TextStyle(fontSize: 12, color: Colors.grey.shade800)),
+                      Text(S.potAmountLabel,
+                          style: TextStyle(fontSize: 12, color: Colors.grey.shade800)),
                       const SizedBox(height: 2),
                       Text(
-                        formatMoney(_group!.currency, potAmount),
+                        pot.format(),
                         style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                       ),
                     ],
@@ -264,11 +306,6 @@ class _GroupDetailScreenState extends State<GroupDetailScreen> with SingleTicker
             const SizedBox(height: 10),
             Row(
               children: [
-                Text(
-                  S.accountableLabel(accountable?.name),
-                  style: const TextStyle(fontSize: 12),
-                ),
-                const Spacer(),
                 Text(
                   S.dueDate(formatDate(round.dueDate)),
                   style: const TextStyle(fontSize: 12),
@@ -298,23 +335,24 @@ class _GroupDetailScreenState extends State<GroupDetailScreen> with SingleTicker
     );
   }
 
-  Widget _buildMetadataChips(ChitGroup group, double potAmount) {
+  Widget _buildMetadataChips(ChitGroup group) {
     return Wrap(
       spacing: 8,
       runSpacing: 8,
       children: [
         Chip(
           avatar: const Icon(Icons.payments_outlined, size: 16),
-          label: Text(S.contributionChip(formatMoney(group.currency, group.contributionAmount))),
+          label: Text(S.contributionChip(group.installment.format())),
         ),
         Chip(
           avatar: const Icon(Icons.event_repeat_rounded, size: 16),
           label: Text(S.period(group.period)),
         ),
-        Chip(
-          avatar: const Icon(Icons.percent_rounded, size: 16),
-          label: Text(S.interestChip(group.interestRatePct, group.interestMode)),
-        ),
+        if (group.rateBps > 0)
+          Chip(
+            avatar: const Icon(Icons.percent_rounded, size: 16),
+            label: Text(S.interestChip(group.ratePct, group.penaltyMode.value)),
+          ),
       ],
     );
   }
@@ -322,24 +360,44 @@ class _GroupDetailScreenState extends State<GroupDetailScreen> with SingleTicker
   Widget _buildMembersTab() {
     return ListView.separated(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-      itemCount: _members.length,
+      itemCount: _memberships.length,
       separatorBuilder: (_, __) => const Divider(height: 1),
       itemBuilder: (context, index) {
-        final member = _members[index];
+        final m = _memberships[index];
+        final contact = m.contact;
         return ListTile(
           leading: CircleAvatar(
-            child: Text('${member.payoutOrder}'),
+            child: Text('${m.payoutOrder}'),
           ),
-          title: Text(member.name, style: const TextStyle(fontWeight: FontWeight.w600)),
-          subtitle: Text(member.phone ?? S.noPhone),
+          title: Row(
+            children: [
+              Text(contact?.name ?? 'Member', style: const TextStyle(fontWeight: FontWeight.w600)),
+              if (m.prized) ...[
+                const SizedBox(width: 8),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: Colors.purple.shade50,
+                    borderRadius: BorderRadius.circular(6),
+                    border: Border.all(color: Colors.purple.shade200),
+                  ),
+                  child: Text(
+                    S.prizedStatusBadge,
+                    style: TextStyle(fontSize: 10, color: Colors.purple.shade800, fontWeight: FontWeight.bold),
+                  ),
+                ),
+              ],
+            ],
+          ),
+          subtitle: Text(contact?.phone ?? S.noPhone),
           trailing: const Icon(Icons.chevron_right),
           onTap: () {
             Navigator.push(
               context,
               MaterialPageRoute(
                 builder: (_) => MemberLedgerScreen(
-                  memberId: member.id!,
                   groupId: widget.groupId,
+                  membershipId: m.id!,
                 ),
               ),
             );
@@ -355,15 +413,15 @@ class _GroupDetailScreenState extends State<GroupDetailScreen> with SingleTicker
       itemCount: _rounds.length,
       itemBuilder: (context, index) {
         final round = _rounds[index];
-        final recipient = _memberMap[round.recipientMemberId];
-        final statusLabel = S.roundStatus(round.status);
+        final recipient = _membershipMap[round.recipientMembershipId];
+        final statusLabel = S.roundStatus(round.status.value);
 
         Color badgeColor = Colors.blue.shade100;
         Color textColor = Colors.blue.shade900;
-        if (round.status == 'collected') {
+        if (round.isCollected) {
           badgeColor = Colors.orange.shade100;
           textColor = Colors.orange.shade900;
-        } else if (round.status == 'paid_out') {
+        } else if (round.isPaidOut) {
           badgeColor = Colors.green.shade100;
           textColor = Colors.green.shade900;
         }
@@ -379,7 +437,7 @@ class _GroupDetailScreenState extends State<GroupDetailScreen> with SingleTicker
               ),
             ),
             title: Text(
-              S.roundTitleItem(round.seqNo, recipient?.name ?? S.noRecipient),
+              S.roundTitleItem(round.seqNo, recipient?.contact?.name ?? S.noRecipient),
               style: const TextStyle(fontWeight: FontWeight.w600),
             ),
             subtitle: Text(S.dueDateItem(formatDate(round.dueDate))),

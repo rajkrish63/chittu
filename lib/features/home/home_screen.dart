@@ -1,11 +1,14 @@
 import 'package:flutter/material.dart';
 import '../../core/locale_controller.dart';
+import '../../core/money/money.dart';
 import '../../core/strings.dart';
 import '../../core/utils.dart';
+import '../../core/utils/disclaimer.dart';
 import '../../data/models/chit_group.dart';
 import '../../data/models/chit_round.dart';
 import '../../data/repositories/group_repository.dart';
 import '../../data/repositories/round_repository.dart';
+import '../../domain/models/enums.dart';
 import '../group/group_detail_screen.dart';
 import '../group/new_chit_screen.dart';
 import '../settings/settings_screen.dart';
@@ -121,65 +124,70 @@ class _ChitsListTabState extends State<ChitsListTab> {
       ),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
-          : _groups.isEmpty
-              ? _buildEmptyState()
-              : RefreshIndicator(
-                  onRefresh: loadData,
-                  child: ListView(
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                    children: [
-                      _buildSummaryCard(),
-                      const SizedBox(height: 16),
-                      for (final group in _groups) _buildGroupCard(group),
-                      const SizedBox(height: 72),
-                    ],
-                  ),
-                ),
+          : RefreshIndicator(
+              onRefresh: loadData,
+              child: ListView(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                children: [
+                  const ChitDisclaimer(),
+                  const SizedBox(height: 8),
+                  if (_groups.isEmpty)
+                    _buildEmptyState()
+                  else ...[
+                    _buildSummaryCard(),
+                    const SizedBox(height: 16),
+                    for (final group in _groups) _buildGroupCard(group),
+                    const SizedBox(height: 72),
+                  ],
+                ],
+              ),
+            ),
     );
   }
 
   Widget _buildEmptyState() {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(32),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.menu_book_rounded, size: 80, color: Colors.grey.shade400),
-            const SizedBox(height: 16),
-            Text(
-              S.createFirstChit,
-              style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 8),
-            Text(
-              S.emptyChitsSubtitle,
-              textAlign: TextAlign.center,
-              style: TextStyle(color: Colors.grey.shade600),
-            ),
-            const SizedBox(height: 24),
-            FilledButton.icon(
-              onPressed: () async {
-                final created = await Navigator.push<bool>(
-                  context,
-                  MaterialPageRoute(builder: (_) => const NewChitScreen()),
-                );
-                if (created == true) {
-                  loadData();
-                }
-              },
-              icon: const Icon(Icons.add),
-              label: Text(S.startChit),
-            ),
-          ],
-        ),
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 48),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(Icons.menu_book_rounded, size: 80, color: Colors.grey.shade400),
+          const SizedBox(height: 16),
+          Text(
+            S.createFirstChit,
+            style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 8),
+          Text(
+            S.emptyChitsSubtitle,
+            textAlign: TextAlign.center,
+            style: TextStyle(color: Colors.grey.shade600),
+          ),
+          const SizedBox(height: 24),
+          FilledButton.icon(
+            onPressed: () async {
+              final created = await Navigator.push<bool>(
+                context,
+                MaterialPageRoute(builder: (_) => const NewChitScreen()),
+              );
+              if (created == true) {
+                loadData();
+              }
+            },
+            icon: const Icon(Icons.add),
+            label: Text(S.startChit),
+          ),
+        ],
       ),
     );
   }
 
   Widget _buildSummaryCard() {
-    final activeCount = _groups.where((g) => g.status == 'active').length;
+    final activeGroups = _groups.where((g) => g.status == 'active').toList();
+    final totalMonthlyPaise = activeGroups.fold<int>(0, (sum, g) => sum + g.installmentPaise);
+    final totalMonthlyMoney = Money.fromPaise(totalMonthlyPaise);
+
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -198,7 +206,7 @@ class _ChitsListTabState extends State<ChitsListTab> {
               const SizedBox(height: 4),
               Text(
                 '${_groups.length}',
-                style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+                style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
               ),
             ],
           ),
@@ -211,11 +219,29 @@ class _ChitsListTabState extends State<ChitsListTab> {
               ),
               const SizedBox(height: 4),
               Text(
-                '$activeCount',
+                '${activeGroups.length}',
                 style: const TextStyle(
-                  fontSize: 22,
+                  fontSize: 20,
                   fontWeight: FontWeight.bold,
                   color: Colors.green,
+                ),
+              ),
+            ],
+          ),
+          Container(width: 1, height: 36, color: Colors.grey.shade400),
+          Column(
+            children: [
+              Text(
+                'Monthly Inflow',
+                style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                totalMonthlyMoney.format(),
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                  color: Theme.of(context).colorScheme.primary,
                 ),
               ),
             ],
@@ -229,7 +255,7 @@ class _ChitsListTabState extends State<ChitsListTab> {
     final rounds = _groupRounds[group.id] ?? [];
     ChitRound? activeRound;
     for (final r in rounds) {
-      if (r.status != 'paid_out') {
+      if (r.status != RoundStatus.paidOut) {
         activeRound = r;
         break;
       }
@@ -237,7 +263,7 @@ class _ChitsListTabState extends State<ChitsListTab> {
     activeRound ??= rounds.isNotEmpty ? rounds.last : null;
 
     final periodLabel = S.period(group.period);
-    final amountFormatted = formatMoney(group.currency, group.contributionAmount);
+    final amountFormatted = group.installment.format(currency: group.currency);
 
     return Card(
       margin: const EdgeInsets.only(bottom: 12),

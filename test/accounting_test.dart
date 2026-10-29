@@ -1,25 +1,38 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:chit_notebook/core/money/money.dart';
 import 'package:chit_notebook/core/utils.dart';
 import 'package:chit_notebook/data/models/chit_group.dart';
-import 'package:chit_notebook/data/models/member.dart';
+import 'package:chit_notebook/data/models/contact.dart';
 import 'package:chit_notebook/data/models/ledger_txn.dart';
-import 'package:chit_notebook/data/repositories/member_repository.dart';
+import 'package:chit_notebook/data/models/membership.dart';
+import 'package:chit_notebook/domain/models/enums.dart';
+import 'package:chit_notebook/domain/models/member_balance.dart';
+import 'package:chit_notebook/domain/services/late_fee_calculator.dart';
+import 'package:chit_notebook/domain/services/rounds_generator.dart';
 
 void main() {
   group('Utils & Financial Math', () {
-    test('formatMoney handles positive, zero, and negative amounts', () {
-      expect(formatMoney('₹', 5000), '₹5,000');
-      expect(formatMoney('₹', 0), '₹0');
-      expect(formatMoney('₹', -1500), '-₹1,500');
+    test('Money format handles positive, zero, and negative amounts in Indian Lakh format', () {
+      expect(const Money.fromPaise(500000).format(), '₹5,000');
+      expect(const Money.fromPaise(0).format(), '₹0');
+      expect(const Money.fromPaise(-150000).format(), '-₹1,500');
+      expect(const Money.fromPaise(10000000).format(), '₹1,00,000');
     });
 
-    test('monthlyDueDate clamps properly for short months (e.g. Feb)', () {
-      final start = DateTime(2026, 1, 15);
+    test('RoundsGenerator clamps monthly due dates properly for short months (e.g. Feb)', () {
+      final schedule = RoundsGenerator.generateSchedule(
+        startDate: DateTime(2026, 1, 31),
+        dueDay: 31,
+        totalMembers: 2,
+        period: 'monthly',
+        payoutMethod: PayoutMethod.fixedOrder,
+      );
+      expect(schedule.length, 2);
+      expect(schedule[0].dueDate.month, 1);
+      expect(schedule[0].dueDate.day, 31);
       // Next month is February 2026 (28 days)
-      final febDue = monthlyDueDate(start, 31, 1);
-      expect(febDue.year, 2026);
-      expect(febDue.month, 2);
-      expect(febDue.day, 28);
+      expect(schedule[1].dueDate.month, 2);
+      expect(schedule[1].dueDate.day, 28);
     });
 
     test('waUrl adds country code 91 for 10-digit Indian numbers', () {
@@ -31,43 +44,55 @@ void main() {
       final intlUrl = waUrl('+91 9876543210', 'Hello');
       expect(intlUrl, contains('wa.me/919876543210'));
     });
+
+    test('LateFeeCalculator computes prorated overdue fees accurately', () {
+      final dueDate = DateTime(2026, 10, 10);
+      final currentDate = DateTime(2026, 10, 25); // 15 days overdue
+      final calc = LateFeeCalculator.compute(
+        installmentPaise: 500000, // ₹5,000
+        dueDate: dueDate,
+        rateBps: 200, // 2% per month
+        currentDate: currentDate,
+      );
+
+      expect(calc.isOverdue, isTrue);
+      expect(calc.daysOverdue, 15);
+      // 500000 * 200 * 15 / 300000 = 5000 paise (₹50)
+      expect(calc.lateFee.inPaise, 5000);
+      expect(calc.totalDue.inPaise, 505000);
+    });
+
+    test('LateFeeCalculator returns zero fee for on-time payments', () {
+      final dueDate = DateTime(2026, 10, 25);
+      final currentDate = DateTime(2026, 10, 20); // 5 days before due
+      final calc = LateFeeCalculator.compute(
+        installmentPaise: 500000,
+        dueDate: dueDate,
+        rateBps: 200,
+        currentDate: currentDate,
+      );
+
+      expect(calc.isOverdue, isFalse);
+      expect(calc.daysOverdue, 0);
+      expect(calc.lateFee.inPaise, 0);
+      expect(calc.totalDue.inPaise, 500000);
+    });
   });
 
-  group('Chit Fund Closed-Loop Math', () {
-    test('calculateRecipientPays distributes closed-loop dividends to other members', () {
-      final calc = calculateRecipientPays(
-        pot: 25000.0,
-        interestRatePct: 2.0,
-        totalMembers: 5,
-      );
-
-      expect(calc.interest, 500.0);
-      expect(calc.dividend, 125.0);
-      // Closed loop: 4 other members each receive 125 = 500 total
-      expect(4 * calc.dividend, equals(calc.interest));
-    });
-
-    test('calculateRecipientPays handles edge cases (0% or single member)', () {
-      final zeroRate = calculateRecipientPays(pot: 25000, interestRatePct: 0, totalMembers: 5);
-      expect(zeroRate.interest, 0.0);
-      expect(zeroRate.dividend, 0.0);
-
-      final singleMember = calculateRecipientPays(pot: 5000, interestRatePct: 2.0, totalMembers: 1);
-      expect(singleMember.interest, 0.0);
-      expect(singleMember.dividend, 0.0);
-    });
-
-    test('MemberBalance computes net position correctly (received - paid)', () {
+  group('Plain-Language Financial Balance', () {
+    test('MemberBalance computes plain-language metrics correctly', () {
       const balance = MemberBalance(
-        contributed: 15000,
-        taken: 25000,
-        interestPaid: 500,
-        dividends: 250,
-        arrears: 0,
+        paidSoFar: Money.fromPaise(1500000), // ₹15,000 paid
+        receivedSoFar: Money.fromPaise(2500000), // ₹25,000 received
+        arrears: Money.zero,
+        isPrized: true,
+        postPrizeOutstanding: Money.fromPaise(1000000), // ₹10,000 to pay
       );
 
-      // (25000 received + 250 dividend) - (15000 contributed + 500 interest) = 9750
-      expect(balance.net, 9750.0);
+      // netBalance = received - paid = 25,000 - 15,000 = 10,000
+      expect(balance.netBalance.inPaise, 1000000);
+      expect(balance.isPrized, isTrue);
+      expect(balance.postPrizeOutstanding.inPaise, 1000000);
     });
   });
 
@@ -77,13 +102,14 @@ void main() {
       final group = ChitGroup(
         id: 1,
         name: 'Family Chit',
-        contributionAmount: 5000,
+        installmentPaise: 500000,
         currency: '₹',
         period: 'monthly',
-        interestRatePct: 2.0,
-        interestMode: 'late_fee',
-        startDate: now,
-        dueDay: 5,
+        payoutMethod: PayoutMethod.fixedOrder,
+        penaltyMode: PenaltyMode.lateFee,
+        rateBps: 200,
+        graceDays: 2,
+        commissionBps: 0,
         status: 'active',
         createdAt: now,
       );
@@ -92,30 +118,60 @@ void main() {
       final reconstructed = ChitGroup.fromMap(map);
 
       expect(reconstructed.name, group.name);
-      expect(reconstructed.contributionAmount, 5000);
+      expect(reconstructed.installmentPaise, 500000);
       expect(reconstructed.period, 'monthly');
-      expect(reconstructed.dueDay, 5);
+      expect(reconstructed.payoutMethod, PayoutMethod.fixedOrder);
+      expect(reconstructed.rateBps, 200);
+      expect(reconstructed.graceDays, 2);
     });
 
-    test('Member toMap and fromMap roundtrip', () {
+    test('Contact toMap and fromMap roundtrip', () {
       final now = DateTime(2026, 10, 28);
-      final member = Member(
+      final contact = Contact(
         id: 1,
-        groupId: 10,
         name: 'Kumar',
         phone: '9876543210',
-        payoutOrder: 1,
-        role: 'admin',
-        joinedAt: now,
+        countryCode: '91',
+        note: 'Guarantor: Raman',
+        createdAt: now,
       );
 
-      final map = member.toMap();
-      final reconstructed = Member.fromMap(map);
+      final map = contact.toMap();
+      final reconstructed = Contact.fromMap(map);
 
       expect(reconstructed.name, 'Kumar');
       expect(reconstructed.phone, '9876543210');
-      expect(reconstructed.payoutOrder, 1);
-      expect(reconstructed.role, 'admin');
+      expect(reconstructed.note, 'Guarantor: Raman');
+    });
+
+    test('Membership toMap and fromMap roundtrip', () {
+      final now = DateTime(2026, 10, 28);
+      final contact = Contact(
+        id: 1,
+        name: 'Kumar',
+        phone: '9876543210',
+        createdAt: now,
+      );
+
+      final membership = Membership(
+        id: 10,
+        groupId: 1,
+        contactId: 1,
+        shareNo: 1,
+        payoutOrder: 2,
+        prized: true,
+        guarantorNote: 'Raman backed',
+        contact: contact,
+      );
+
+      final map = membership.toMap();
+      final reconstructed = Membership.fromMap(map, contact);
+
+      expect(reconstructed.groupId, 1);
+      expect(reconstructed.contactId, 1);
+      expect(reconstructed.payoutOrder, 2);
+      expect(reconstructed.prized, isTrue);
+      expect(reconstructed.guarantorNote, 'Raman backed');
     });
 
     test('LedgerTxn toMap and fromMap roundtrip', () {
@@ -123,19 +179,19 @@ void main() {
       final txn = LedgerTxn(
         id: 1,
         roundId: 2,
-        memberId: 3,
-        type: 'contribution',
-        amount: 5000,
+        membershipId: 3,
+        type: TransactionType.contribution,
+        amountPaise: 500000,
         isLate: false,
-        note: 'On-time payment',
+        note: 'On-time installment',
         createdAt: now,
       );
 
       final map = txn.toMap();
       final reconstructed = LedgerTxn.fromMap(map);
 
-      expect(reconstructed.type, 'contribution');
-      expect(reconstructed.amount, 5000);
+      expect(reconstructed.type, TransactionType.contribution);
+      expect(reconstructed.amountPaise, 500000);
       expect(reconstructed.isLate, isFalse);
     });
   });

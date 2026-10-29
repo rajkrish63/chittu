@@ -15,8 +15,8 @@ class DatabaseHelper {
   Future<Database> _open() async {
     final dir = await getApplicationDocumentsDirectory();
     return openDatabase(
-      join(dir.path, 'chit_notebook.db'),
-      version: 1,
+      join(dir.path, 'chit_notebook_v2.db'),
+      version: Schema.currentVersion,
       onConfigure: (db) async {
         await db.execute('PRAGMA foreign_keys = ON');
       },
@@ -26,7 +26,12 @@ class DatabaseHelper {
         }
       },
       onUpgrade: (db, oldV, newV) async {
-        // v1 -> v1.1 migrations go here (never edit Schema in place after release).
+        // Versioned migrations go here
+        if (oldV < 2) {
+          for (final sql in Schema.createStatements) {
+            await db.execute(sql);
+          }
+        }
       },
     );
   }
@@ -40,15 +45,18 @@ class DatabaseHelper {
     }
     return const JsonEncoder.withIndent('  ').convert({
       'app': 'chit_notebook',
-      'version': 1,
+      'schema_version': Schema.currentVersion,
       'exported_at': DateTime.now().toIso8601String(),
       'data': dump,
     });
   }
 
-  /// Restore from [exportJson] output. Replaces ALL current data — confirm first!
+  /// Restore from [exportJson] output. Replaces ALL current data inside an atomic transaction.
   Future<void> importJson(String json) async {
     final decoded = jsonDecode(json) as Map<String, dynamic>;
+    if (decoded['app'] != 'chit_notebook') {
+      throw const FormatException('Invalid backup: unrecognized application header.');
+    }
     final data = decoded['data'] as Map<String, dynamic>;
     final db = await database;
     await db.transaction((txn) async {
@@ -56,8 +64,10 @@ class DatabaseHelper {
         await txn.delete(t);
       }
       for (final t in Schema.tables) {
-        for (final row in (data[t] as List).cast<Map<String, dynamic>>()) {
-          await txn.insert(t, row.cast<String, Object?>());
+        if (data.containsKey(t)) {
+          for (final row in (data[t] as List).cast<Map<String, dynamic>>()) {
+            await txn.insert(t, row.cast<String, Object?>());
+          }
         }
       }
     });

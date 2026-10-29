@@ -1,0 +1,23 @@
+{
+  "@@locale": "en",
+  "appTitle": "Chit Notebook",
+  "myChits": "My Chits",
+  "newChit": "New Chit",
+  "startChit": "Start Chit",
+  "createFirstChit": "Create your first chit",
+  "emptyChitsSubtitle": "Offline ledger for family & friends rotating savings funds.",
+  "paidSoFar": "Paid so far",
+  "receivedSoFar": "Received so far",
+  "stillToReceive": "Still to receive",
+  "stillToPay": "Still to pay",
+  "arrears": "Arrears",
+  "prized": "Prized (Winner)",
+  "notPrized": "Pending Payout",
+  "postPrizeOutstanding": "Post-prize commitment",
+  "guarantorNote": "Guarantor / Security Note",
+  "settings": "Settings",
+  "language": "Language",
+  "theme": "Theme",
+  "disclaimerText": "Chit Notebook is an offline digital ledger for organizers. It is NOT a payment app and NOT a regulated chit fund. Settlements occur outside the app."
+}
+

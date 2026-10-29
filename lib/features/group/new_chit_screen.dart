@@ -1,10 +1,13 @@
 import 'package:flutter/material.dart';
 import '../../core/locale_controller.dart';
+import '../../core/money/money.dart';
 import '../../core/strings.dart';
 import '../../core/utils.dart';
 import '../../data/models/chit_group.dart';
-import '../../data/models/member.dart';
+import '../../data/models/contact.dart';
+import '../../data/repositories/contact_repository.dart';
 import '../../data/repositories/group_repository.dart';
+import '../../domain/models/enums.dart';
 
 class NewChitScreen extends StatefulWidget {
   const NewChitScreen({super.key});
@@ -16,6 +19,7 @@ class NewChitScreen extends StatefulWidget {
 class _NewChitScreenState extends State<NewChitScreen> {
   final _formKey = GlobalKey<FormState>();
   final GroupRepository _groupRepo = GroupRepository();
+  final ContactRepository _contactRepo = ContactRepository();
 
   // Basic Details
   late final TextEditingController _nameController;
@@ -24,15 +28,16 @@ class _NewChitScreenState extends State<NewChitScreen> {
   DateTime _startDate = DateTime.now();
   int _dueDay = 5;
 
-  // Interest Settings
+  // Interest & Penalty Settings
   final _rateController = TextEditingController(text: '2.0');
   String _interestMode = 'late_fee';
 
-  // Members list
+  // Members list (name, phone, note)
   late final List<Map<String, String>> _members;
 
   final _newMemberNameController = TextEditingController();
   final _newMemberPhoneController = TextEditingController();
+  final _newMemberNoteController = TextEditingController();
 
   bool _saving = false;
 
@@ -43,18 +48,18 @@ class _NewChitScreenState extends State<NewChitScreen> {
     _nameController = TextEditingController(text: isTa ? 'குடும்ப சீட்டு' : 'Family Chit');
     _members = isTa
         ? [
-            {'name': 'குமார் (Kumar)', 'phone': '9876543210'},
-            {'name': 'செல்வி (Selvi)', 'phone': '9876543211'},
-            {'name': 'ராஜா (Raja)', 'phone': '9876543212'},
-            {'name': 'கார்த்திக் (Karthik)', 'phone': '9876543213'},
-            {'name': 'மீனா (Meena)', 'phone': '9876543214'},
+            {'name': 'குமார் (Kumar)', 'phone': '9876543210', 'note': ''},
+            {'name': 'செல்வி (Selvi)', 'phone': '9876543211', 'note': ''},
+            {'name': 'ராஜா (Raja)', 'phone': '9876543212', 'note': ''},
+            {'name': 'கார்த்திக் (Karthik)', 'phone': '9876543213', 'note': ''},
+            {'name': 'மீனா (Meena)', 'phone': '9876543214', 'note': ''},
           ]
         : [
-            {'name': 'Kumar', 'phone': '9876543210'},
-            {'name': 'Selvi', 'phone': '9876543211'},
-            {'name': 'Raja', 'phone': '9876543212'},
-            {'name': 'Karthik', 'phone': '9876543213'},
-            {'name': 'Meena', 'phone': '9876543214'},
+            {'name': 'Kumar', 'phone': '9876543210', 'note': ''},
+            {'name': 'Selvi', 'phone': '9876543211', 'note': ''},
+            {'name': 'Raja', 'phone': '9876543212', 'note': ''},
+            {'name': 'Karthik', 'phone': '9876543213', 'note': ''},
+            {'name': 'Meena', 'phone': '9876543214', 'note': ''},
           ];
   }
 
@@ -65,19 +70,79 @@ class _NewChitScreenState extends State<NewChitScreen> {
     _rateController.dispose();
     _newMemberNameController.dispose();
     _newMemberPhoneController.dispose();
+    _newMemberNoteController.dispose();
     super.dispose();
   }
 
   void _addMember() {
     final name = _newMemberNameController.text.trim();
     final phone = _newMemberPhoneController.text.trim();
+    final note = _newMemberNoteController.text.trim();
     if (name.isEmpty) return;
 
     setState(() {
-      _members.add({'name': name, 'phone': phone});
+      _members.add({'name': name, 'phone': phone, 'note': note});
       _newMemberNameController.clear();
       _newMemberPhoneController.clear();
+      _newMemberNoteController.clear();
     });
+  }
+
+  Future<void> _pickExistingContact() async {
+    final existingContacts = await _contactRepo.getAllContacts();
+    if (!mounted) return;
+
+    if (existingContacts.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No saved contacts yet in notebook.')),
+      );
+      return;
+    }
+
+    final selected = await showModalBottomSheet<Contact>(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) {
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Padding(
+                padding: const EdgeInsets.all(16),
+                child: Text(
+                  'Select from Notebook Contacts',
+                  style: Theme.of(ctx).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
+                ),
+              ),
+              const Divider(height: 1),
+              Expanded(
+                child: ListView.builder(
+                  itemCount: existingContacts.length,
+                  itemBuilder: (ctx, i) {
+                    final c = existingContacts[i];
+                    return ListTile(
+                      leading: CircleAvatar(child: Text(c.name.isNotEmpty ? c.name[0].toUpperCase() : '?')),
+                      title: Text(c.name, style: const TextStyle(fontWeight: FontWeight.w600)),
+                      subtitle: Text(c.phone ?? 'No phone'),
+                      onTap: () => Navigator.pop(ctx, c),
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+
+    if (selected != null) {
+      setState(() {
+        _newMemberNameController.text = selected.name;
+        _newMemberPhoneController.text = selected.phone ?? '';
+      });
+    }
   }
 
   void _removeMember(int index) {
@@ -103,34 +168,44 @@ class _NewChitScreenState extends State<NewChitScreen> {
 
     setState(() => _saving = true);
     try {
-      final amount = double.tryParse(_amountController.text.trim()) ?? 0;
-      final rate = double.tryParse(_rateController.text.trim()) ?? 0;
+      final money = Money.tryParse(_amountController.text.trim()) ?? Money.zero;
+      final rateBps = ((double.tryParse(_rateController.text.trim()) ?? 0.0) * 100).round();
 
       final group = ChitGroup(
         name: _nameController.text.trim(),
-        contributionAmount: amount,
+        installmentPaise: money.paise,
         currency: '₹',
         period: _period,
-        interestRatePct: rate,
-        interestMode: _interestMode,
-        startDate: _startDate,
-        dueDay: _dueDay,
+        payoutMethod: PayoutMethod.fixedOrder,
+        penaltyMode: PenaltyMode.fromString(_interestMode),
+        rateBps: rateBps,
+        graceDays: 0,
+        commissionBps: 0,
         status: 'active',
         createdAt: DateTime.now(),
       );
 
-      final members = <Member>[];
+      final contacts = <Contact>[];
+      final guarantorNotes = <String?>[];
+
       for (var i = 0; i < _members.length; i++) {
-        members.add(Member(
-          name: _members[i]['name']!,
-          phone: _members[i]['phone'],
-          payoutOrder: i + 1,
-          role: i == 0 ? 'admin' : 'member',
-          joinedAt: DateTime.now(),
+        final m = _members[i];
+        contacts.add(Contact(
+          name: m['name']!,
+          phone: m['phone']?.isEmpty == true ? null : m['phone'],
+          createdAt: DateTime.now(),
         ));
+        guarantorNotes.add(m['note']?.isEmpty == true ? null : m['note']);
       }
 
-      await _groupRepo.createGroup(group, members);
+      await _groupRepo.createGroupWithMembershipsAndRounds(
+        group: group,
+        contacts: contacts,
+        startDate: _startDate,
+        dueDay: _dueDay,
+        guarantorNotes: guarantorNotes,
+      );
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(S.chitCreatedSuccess)),
@@ -150,8 +225,8 @@ class _NewChitScreenState extends State<NewChitScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final amount = double.tryParse(_amountController.text.trim()) ?? 0;
-    final totalPot = amount * _members.length;
+    final money = Money.tryParse(_amountController.text.trim()) ?? Money.zero;
+    final totalPot = money * _members.length;
 
     return ListenableBuilder(
       listenable: AppLocaleController.instance,
@@ -164,7 +239,7 @@ class _NewChitScreenState extends State<NewChitScreen> {
           child: ListView(
             padding: const EdgeInsets.all(16),
             children: [
-              // Section 1: Basic
+              // Section 1: Basic Details
               _buildSectionHeader(S.basicDetailsSection),
               TextFormField(
                 controller: _nameController,
@@ -189,8 +264,8 @@ class _NewChitScreenState extends State<NewChitScreen> {
                       ),
                       onChanged: (_) => setState(() {}),
                       validator: (v) {
-                        final n = double.tryParse(v ?? '');
-                        if (n == null || n <= 0) return S.validAmountRequired;
+                        final m = Money.tryParse(v ?? '');
+                        if (m == null || m.paise <= 0) return S.validAmountRequired;
                         return null;
                       },
                     ),
@@ -260,7 +335,7 @@ class _NewChitScreenState extends State<NewChitScreen> {
               ),
               const SizedBox(height: 24),
 
-              // Section 2: Interest
+              // Section 2: Interest & Penalty Settings
               _buildSectionHeader(S.interestModeSection),
               TextFormField(
                 controller: _rateController,
@@ -322,7 +397,7 @@ class _NewChitScreenState extends State<NewChitScreen> {
                         child: Text('${index + 1}'),
                       ),
                       title: Text(m['name']!, style: const TextStyle(fontWeight: FontWeight.w600)),
-                      subtitle: Text(m['phone'] ?? ''),
+                      subtitle: Text(m['phone']?.isNotEmpty == true ? m['phone']! : 'No phone'),
                       trailing: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
@@ -337,30 +412,36 @@ class _NewChitScreenState extends State<NewChitScreen> {
                   );
                 },
               ),
-              const SizedBox(height: 8),
+              const SizedBox(height: 12),
+              // Member input row with contact picker
               Row(
                 children: [
                   Expanded(
-                    flex: 2,
+                    flex: 3,
                     child: TextField(
                       controller: _newMemberNameController,
                       decoration: InputDecoration(
                         labelText: S.memberNameLabel,
                         hintText: S.memberNameHint,
                         border: const OutlineInputBorder(),
+                        suffixIcon: IconButton(
+                          icon: const Icon(Icons.contacts_outlined),
+                          tooltip: 'Pick from saved contacts',
+                          onPressed: _pickExistingContact,
+                        ),
                       ),
                     ),
                   ),
                   const SizedBox(width: 8),
                   Expanded(
-                    flex: 2,
+                    flex: 3,
                     child: TextField(
                       controller: _newMemberPhoneController,
                       keyboardType: TextInputType.phone,
-                      decoration: InputDecoration(
-                        labelText: S.phoneLabel,
+                      decoration: const InputDecoration(
+                        labelText: 'Phone',
                         hintText: '9876543210',
-                        border: const OutlineInputBorder(),
+                        border: OutlineInputBorder(),
                       ),
                     ),
                   ),
@@ -405,7 +486,7 @@ class _NewChitScreenState extends State<NewChitScreen> {
                       children: [
                         Text(S.potPerRound),
                         Text(
-                          formatMoney('₹', totalPot),
+                          totalPot.format(),
                           style: TextStyle(
                             fontSize: 16,
                             fontWeight: FontWeight.bold,
